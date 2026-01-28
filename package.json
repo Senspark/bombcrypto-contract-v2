@@ -1,0 +1,26 @@
+{
+  "dependencies": {
+    "@openzeppelin/contracts-upgradeable": "^5.0.1"
+  },
+  "name": "bombcrypto-contract",
+  "version": "1.0.0",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Senspark/bombcrypto-contract.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/Senspark/bombcrypto-contract/issues"
+  },
+  "homepage": "https://github.com/Senspark/bombcrypto-contract#readme",
+  "description": "",
+  "devDependencies": {
+    "hardhat": "^2.22.1"
+  }
+}

@@ -1,0 +1,29 @@
+{
+  "name": "bombcrypto-base",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "",
+  "license": "ISC",
+  "devDependencies": {
+    "@nomicfoundation/hardhat-chai-matchers": "^2.0.6",
+    "@nomicfoundation/hardhat-ethers": "^3.0.5",
+    "@nomicfoundation/hardhat-ledger": "^1.0.2",
+    "@nomicfoundation/hardhat-toolbox": "^4.0.0",
+    "@nomiclabs/buidler": "^1.4.8",
+    "@nomiclabs/hardhat-etherscan": "^3.1.8",
+    "@openzeppelin/hardhat-upgrades": "^3.0.5",
+    "ethers": "^6.11.1",
+    "hardhat": "^2.20.1"
+  },
+  "dependencies": {
+    "@anders-t/ethers-ledger": "^1.0.4",
+    "@ethersproject/hardware-wallets": "^5.7.0",
+    "@nomicfoundation/hardhat-network-helpers": "^1.0.11",
+    "@openzeppelin/contracts-upgradeable": "^4.5.2",
+    "eth-provider": "^0.13.6"
+  }
+}
