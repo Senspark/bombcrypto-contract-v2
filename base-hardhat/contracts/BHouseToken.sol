@@ -125,6 +125,12 @@ contract BHouseToken is ERC721Upgradeable, AccessControlUpgradeable, PausableUpg
     _safeMint(to, id);
   }
 
+  function batchTransfer(address to, uint256[] calldata ids) external {
+    for (uint256 i = 0; i < ids.length; ++i) {
+      safeTransferFrom(msg.sender, to, ids[i]);
+    }
+  }
+
   function _transfer(
     address from,
     address to,
@@ -165,9 +171,6 @@ contract BHouseToken is ERC721Upgradeable, AccessControlUpgradeable, PausableUpg
       uint256 index = ids.length;
       ids.push(id);
       tokenDetails[id] = BHouseDetails.setIndex(tokenDetails[id], index);
-
-      // Check user limit.
-      require(index + 1 <= design.getTokenLimit(), "User limit reached");
     }
   }
 

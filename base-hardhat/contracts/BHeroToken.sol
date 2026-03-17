@@ -303,11 +303,8 @@ contract BHeroToken is ERC721Upgradeable, AccessControlUpgradeable, PausableUpgr
     // Temporarily fix reentrancy in _checkOnERC721Received.
     require(!AddressUpgradeable.isContract(to), "Not a user address");
 
-    uint256 size = tokenIds[to].length;
-    uint256 limit = design.getTokenLimit();
-    require(size < limit, "User limit reached");
-    // Fixed: Hold heros avoid to limit RAM EVM
-    uint256 available = (limit - size) > 100 ? 100 : (limit - size);
+    // Fixed: Hold heros to avoid reaching block gas limit
+    uint256 available = 100;
     uint256 countFusionFailed;
     uint256 countFusionSuccess;
     CreateTokenRequest[] storage requests = tokenRequests[to];
@@ -428,6 +425,12 @@ contract BHeroToken is ERC721Upgradeable, AccessControlUpgradeable, PausableUpgr
     emit TokenRandomRequestCreated(id, topic, details);
   }
 
+  function batchTransfer(address to, uint256[] calldata ids) external {
+    for (uint256 i = 0; i < ids.length; ++i) {
+      safeTransferFrom(msg.sender, to, ids[i]);
+    }
+  }
+
   function _transfer(
     address from,
     address to,
@@ -466,9 +469,6 @@ contract BHeroToken is ERC721Upgradeable, AccessControlUpgradeable, PausableUpgr
       uint256 index = ids.length;
       ids.push(id);
       tokenDetails[id] = BHeroDetails.setIndex(tokenDetails[id], index);
-
-      // Check limit.
-      require(index + 1 <= design.getTokenLimit(), "User limit reached");
     }
   }
 
@@ -567,10 +567,6 @@ contract BHeroToken is ERC721Upgradeable, AccessControlUpgradeable, PausableUpgr
   }
 
   function claimHero(uint256 _count, address _to) external onlyRole(CLAIMER_ROLE) {
-    uint256 size = tokenIds[_to].length;
-    uint256 limit = design.getTokenLimit();
-    //require(size < limit, "User limit reached");
-
     uint256 isHeroS = 1;
     uint256[] memory dropRateOption = design.getDropRate();
     requestCreateToken(_to, _count, 0, 0, isHeroS, dropRateOption);
