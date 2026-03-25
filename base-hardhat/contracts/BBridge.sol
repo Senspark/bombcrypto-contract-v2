@@ -225,7 +225,7 @@ contract BBridge is Initializable, AccessControlUpgradeable, UUPSUpgradeable {
     // Transfer tokens from this contract to the user
     require(IERC20(token).transfer(user, amount), "transfer token failed");
 
-    taxAmountV2 += ((amount*taxPercentage)/(100-taxPercentage));
+    taxAmountV2 += tax;
     emit BridgeTo(user, amount, token, taxPercentage);
   }
 
