@@ -207,7 +207,8 @@ contract BBridge is Initializable, AccessControlUpgradeable, UUPSUpgradeable {
     PaidReceipt storage __receipt = paidReceipts[txHash];
     require(!_isPaid(__receipt), "already paid");
     // Not paid yet? Let's pay out
-    uint256 tax = ((amount*taxPercentage)/(100));
+    // Standardize tax calculation (Consistent with bridgeTo)
+    uint256 tax = ((amount * taxPercentage) / (100 - taxPercentage));
 
     require(IERC20(token).balanceOf(address(this)) > amount, "Not enough balance to paid out");
     // Create a receipt to avoid reentrancy attack
