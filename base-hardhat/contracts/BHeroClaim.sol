@@ -97,8 +97,11 @@ contract BHeroClaim is AccessControlUpgradeable, PausableUpgradeable, UUPSUpgrad
     uint256 limit = heroToken.design().getTokenLimit();
     require(size < limit, "User limit reached");
 
-    for (uint256 i = 0; i < requestDetails[to].length; ++i) {
-      uint256 details = requestDetails[to][i];
+    uint256[] memory detailsList = requestDetails[to];
+    delete requestDetails[to];
+
+    for (uint256 i = 0; i < detailsList.length; ++i) {
+      uint256 details = detailsList[i];
       uint256 count = details & (2**10 - 1);
       uint256 rarity = (details >> 10) & (2**5 - 1);
 
@@ -114,14 +117,40 @@ contract BHeroClaim is AccessControlUpgradeable, PausableUpgradeable, UUPSUpgrad
       uint256 tokenRequestDetails = targetBlock | (moreDetails << 30);
       heroToken.createTokenRequest(to, count, rarity, targetBlock, tokenRequestDetails);
     }
-    delete requestDetails[to];
   }
 
   function addHeroesEvent(address[] calldata users, uint256[] calldata skins) public onlyRole(MINTER_ROLE) {
     uint256[] memory dropRates = heroToken.design().getDropRateHeroS();
     require(users.length == skins.length, "Wrong length");
     for (uint256 i = 0; i < users.length; ++i) {
-      this.addClaimRequests(users[i], 1, 0, 0, 1, dropRates, skins[i]);
+      _addClaimRequests(users[i], 1, 0, 0, 1, dropRates, skins[i]);
     }
+  }
+
+  function _addClaimRequests(
+    address to,
+    uint256 count,
+    uint256 rarity,
+    uint256 category,
+    uint256 isHeroS,
+    uint256[] memory dropRates,
+    uint256 skin
+  ) internal {
+    require(rarity <= 6, "Invalid rarity");
+    uint256 details;
+    details |= count;
+    details |= rarity << 10;
+    details |= category << 15;
+    details |= isHeroS << 20;
+    details |= dropRates.length << 25;
+    uint256 totalDropRate;
+    for (uint256 i = 0; i < dropRates.length; ++i) {
+      details |= dropRates[i] << (30 + i * 15);
+      totalDropRate += dropRates[i];
+    }
+    details |= skin << 120;
+    require(totalDropRate > 0, "Drop rate must be positive");
+    require(dropRates.length == 6, "Invalid drop rate size");
+    requestDetails[to].push(details);
   }
 }

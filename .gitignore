@@ -1,4 +1,4 @@
-﻿env*.json
+env*.json
 .env*.json
 node_modules
 package-lock.json
@@ -6,3 +6,5 @@ package-lock.json
 secrets.json
 build
 .idea
+base-hardhat/artifacts
+base-hardhat/cache

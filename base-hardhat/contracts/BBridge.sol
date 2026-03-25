@@ -207,7 +207,8 @@ contract BBridge is Initializable, AccessControlUpgradeable, UUPSUpgradeable {
     PaidReceipt storage __receipt = paidReceipts[txHash];
     require(!_isPaid(__receipt), "already paid");
     // Not paid yet? Let's pay out
-    uint256 tax = ((amount*taxPercentage)/(100));
+    // Standardize tax calculation (Consistent with bridgeTo)
+    uint256 tax = ((amount * taxPercentage) / (100 - taxPercentage));
 
     require(IERC20(token).balanceOf(address(this)) > amount, "Not enough balance to paid out");
     // Create a receipt to avoid reentrancy attack
@@ -224,7 +225,7 @@ contract BBridge is Initializable, AccessControlUpgradeable, UUPSUpgradeable {
     // Transfer tokens from this contract to the user
     require(IERC20(token).transfer(user, amount), "transfer token failed");
 
-    taxAmountV2 += ((amount*taxPercentage)/(100-taxPercentage));
+    taxAmountV2 += tax;
     emit BridgeTo(user, amount, token, taxPercentage);
   }
 
