@@ -15,15 +15,17 @@
     "@nomicfoundation/hardhat-toolbox": "^4.0.0",
     "@nomiclabs/buidler": "^1.4.8",
     "@nomiclabs/hardhat-etherscan": "^3.1.8",
-    "@openzeppelin/hardhat-upgrades": "^3.0.5",
+    "@openzeppelin/contracts": "^4.5.0",
+    "@openzeppelin/contracts-upgradeable": "^4.5.2",
+    "@openzeppelin/hardhat-upgrades": "^3.9.1",
+    "chai": "^4.5.0",
     "ethers": "^6.11.1",
-    "hardhat": "^2.20.1"
+    "hardhat": "^2.28.6"
   },
   "dependencies": {
     "@anders-t/ethers-ledger": "^1.0.4",
     "@ethersproject/hardware-wallets": "^5.7.0",
     "@nomicfoundation/hardhat-network-helpers": "^1.0.11",
-    "@openzeppelin/contracts-upgradeable": "^4.5.2",
     "eth-provider": "^0.13.6"
   }
 }
