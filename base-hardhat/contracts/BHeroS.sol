@@ -38,9 +38,9 @@ contract BHeroS is Initializable, AccessControlUpgradeable, UUPSUpgradeable {
 
   uint256 maxBurn;
   //create rock from Hero type
-  uint8[6] numRockCreate;
+  uint8[6] numRockCreate; // DEPRECATED: kept for storage layout, use numRockCreateV2
   //number rock need to reset shield
-  uint8[6] numRockResetShield;
+  uint8[6] numRockResetShield; // DEPRECATED: kept for storage layout, use numRockResetShieldV2
 
   //User info
   struct UserInfo {
@@ -64,6 +64,11 @@ contract BHeroS is Initializable, AccessControlUpgradeable, UUPSUpgradeable {
   */
 
   mapping(address => mapping(uint256 => bool)) public usedNonces;
+
+  // V2 storage: expanded arrays for 10 rarities (Mega, Super Mega, Mystic, Super Mystic)
+  // Added at end of storage to preserve UUPS storage layout compatibility
+  uint8[10] numRockCreateV2;
+  uint8[10] numRockResetShieldV2;
 
   function initialize(BHeroToken bHeroTokenVal) public initializer {
     __AccessControl_init();
@@ -123,8 +128,9 @@ contract BHeroS is Initializable, AccessControlUpgradeable, UUPSUpgradeable {
 
   function checkNumHeroBurn(uint256 detailHeroS, uint256[] memory listIdHero) public pure returns (bool) {
     uint256 rarityHeroS = BHeroDetails.decodeRarity(detailHeroS);
+    require(rarityHeroS < 10, "Rarity out of range");
 
-    uint8[6] memory numHero = [1, 1, 2, 3, 4, 5];
+    uint8[10] memory numHero = [1, 1, 2, 3, 4, 5, 6, 7, 8, 9];
     return listIdHero.length == numHero[rarityHeroS];
   }
 
@@ -138,7 +144,7 @@ contract BHeroS is Initializable, AccessControlUpgradeable, UUPSUpgradeable {
     uint256 totalRock;
     for (uint256 i = 0; i < listIdHero.length; ++i) {
       uint256 rarity = BHeroDetails.decodeRarity(getTokenDetailByID(listIdHero[i]));
-      totalRock += numRockCreate[rarity];
+      totalRock += numRockCreateV2[rarity];
     }
     return totalRock;
   }
@@ -164,6 +170,7 @@ contract BHeroS is Initializable, AccessControlUpgradeable, UUPSUpgradeable {
   /**
    * polygon: [5,10,20,35,55,80]
    * BSC: [1,2,3,4,5,6]
+   * @deprecated Use setNumRockCreateV2 instead
    */
   function setNumRockCreate(uint8[6] memory value) external onlyRole(DESIGNER_ROLE) {
     numRockCreate = value;
@@ -172,9 +179,28 @@ contract BHeroS is Initializable, AccessControlUpgradeable, UUPSUpgradeable {
   /**
    * polygon: [1,2,4,6,8,10]
    * BSC: [1,1,2,3,4,5]
+   * @deprecated Use setNumRockResetShieldV2 instead
    */
   function setNumRockResetShield(uint8[6] memory value) external onlyRole(DESIGNER_ROLE) {
     numRockResetShield = value;
+  }
+
+  /**
+   * V2: Expanded for 10 rarities
+   * polygon: [5,10,20,35,55,80,110,150,200,260]
+   * BSC: [1,2,3,4,5,6,7,8,9,10]
+   */
+  function setNumRockCreateV2(uint8[10] memory value) external onlyRole(DESIGNER_ROLE) {
+    numRockCreateV2 = value;
+  }
+
+  /**
+   * V2: Expanded for 10 rarities
+   * polygon: [1,2,4,6,8,10,12,14,16,18]
+   * BSC: [1,1,2,3,4,5,6,7,8,9]
+   */
+  function setNumRockResetShieldV2(uint8[10] memory value) external onlyRole(DESIGNER_ROLE) {
+    numRockResetShieldV2 = value;
   }
 
   function addRockByAdmin(address user, uint value) external onlyRole(DESIGNER_ROLE) {
@@ -201,7 +227,7 @@ contract BHeroS is Initializable, AccessControlUpgradeable, UUPSUpgradeable {
   }
 
   function getPercentHeroS(uint256[] memory heroTypes) public pure returns (uint256[] memory) {
-    uint256[] memory dropRate = new uint256[](6);
+    uint256[] memory dropRate = new uint256[](10);
 
     for (uint256 i = 0; i < heroTypes.length; ++i) {
       dropRate[heroTypes[i]]++;
@@ -330,7 +356,7 @@ contract BHeroS is Initializable, AccessControlUpgradeable, UUPSUpgradeable {
     uint256 detailHeroS;
     (rarity, level, detailHeroS) = _getHeroInfo(owner, idHeroS);
 
-    require(numRockResetShield[rarity] * level == numRock, "Not enough rocks to reset");
+    require(numRockResetShieldV2[rarity] * level == numRock, "Not enough rocks to reset");
     //update data
     userInfos[owner].totalRock -= numRock;
 
@@ -455,7 +481,7 @@ contract BHeroS is Initializable, AccessControlUpgradeable, UUPSUpgradeable {
   ) external canFusion(mainMaterials, buffMaterials) {
     uint256 rarityMain;
     uint256 rarityTarget;
-    uint256[] memory dropRateOption = new uint256[](6);
+    uint256[] memory dropRateOption = new uint256[](10);
     (rarityMain, rarityTarget, dropRateOption) = _calculateFusion(mainMaterials, buffMaterials);
     address to = msg.sender;
 
@@ -483,10 +509,10 @@ contract BHeroS is Initializable, AccessControlUpgradeable, UUPSUpgradeable {
     uint256 countMain = mainMaterials.length;
     uint256 rarityMain = _getRarityByHeroS(mainMaterials[0]);
     uint256 rarityTarget = rarityMain + 1;
-    require(rarityTarget < 6, "Rarity target max is 5");
+    require(rarityTarget < 10, "Rarity target max is 9");
     uint256 percent;
     uint256 surplusPercent;
-    uint256[] memory dropRateOption = new uint256[](6);
+    uint256[] memory dropRateOption = new uint256[](10);
     if (countMain == 4) {
       dropRateOption[rarityTarget] = 10000;
     } else {
@@ -599,7 +625,17 @@ contract BHeroS is Initializable, AccessControlUpgradeable, UUPSUpgradeable {
     userInfos[msg.sender].totalRock += numRockPacks[packId];
   }*/
 
-  function dummyDeploy5() public view returns (uint256) {
+  function dummyDeploy6() public view returns (uint256) {
     return 0;
+  }
+
+  /**
+   * @dev Initialize V2 arrays from legacy arrays (call once after upgrade)
+   */
+  function migrateToV2() external onlyRole(DESIGNER_ROLE) {
+    for (uint256 i = 0; i < 6; ++i) {
+      numRockCreateV2[i] = numRockCreate[i];
+      numRockResetShieldV2[i] = numRockResetShield[i];
+    }
   }
 }
