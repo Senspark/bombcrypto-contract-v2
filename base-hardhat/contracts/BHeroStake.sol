@@ -82,6 +82,7 @@ contract BHeroStake is Initializable, AccessControlUpgradeable, UUPSUpgradeable 
       heroStake[id].timeStake = block.timestamp;
     }
     heroStake[id].balance += amount;
+    emit BalanceChanged(address(coinToken), id, amount);
   }
 
   function withdrawCoinFromHeroId(uint256 id, uint256 amount) external onlyRole(DESIGNER_ROLE) {
@@ -98,6 +99,7 @@ contract BHeroStake is Initializable, AccessControlUpgradeable, UUPSUpgradeable 
 
     coinToken.transfer(msg.sender, amount_withdraw);
     heroStake[id].balance -= amount;
+    emit BalanceChanged(address(coinToken), id, amount);
   }
 
   function getCoinBalancesByHeroId(uint256 id) public view returns (uint256) {
