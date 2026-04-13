@@ -149,8 +149,8 @@ contract BHeroDesign is AccessControlUpgradeable, UUPSUpgradeable, IBHeroDesign 
     numRockUpgradeShieldLevel[1] = [1, 2, 4, 6, 8, 10];
     numRockUpgradeShieldLevel[2] = [1, 2, 4, 6, 8, 10];
     numRockUpgradeShieldLevel[3] = [1, 2, 4, 6, 8, 10];
-    //skin value
-    skinArr = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 14, 15, 16];
+    //skin value (Permanent skins: Regulars + Permanent Lost Skins)
+    skinArr = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 18, 19, 20];
   }
 
   function _authorizeUpgrade(address newImplementation) internal override onlyRole(UPGRADER_ROLE) {}
@@ -434,10 +434,23 @@ contract BHeroDesign is AccessControlUpgradeable, UUPSUpgradeable, IBHeroDesign 
     if (skin == BHeroDetails.ALL_SKIN) {
       //except all event skill
       uint256 indexArr;
-      uint256 lengthArr = skinArr.length - 1;
       uint256 seedSkin = seed;
+
+      // Seasonal Logic: October (Halloween), December (Christmas), February (Lunar New Year)
+      uint256 month = getMonth(block.timestamp);
+      uint256[] memory activePool = skinArr;
+      
+      if (month == 10) { // Halloween: Ghost(21), Pumpkin(22), Werewolves(23)
+          activePool = appendSkins(activePool, 21, 23);
+      } else if (month == 12) { // Christmas: Santa(77)
+          activePool = appendSkins(activePool, 77, 77);
+      } else if (month == 2) { // Lunar New Year: FatTiger(92)
+          activePool = appendSkins(activePool, 92, 92);
+      }
+
+      uint256 lengthArr = activePool.length - 1;
       (seed, indexArr) = Utils.randomRangeInclusive(seedSkin, 0, lengthArr);
-      details.skin = skinArr[indexArr];
+      details.skin = activePool[indexArr];
     } else {
       details.skin = skin; // Start from one.
     }
@@ -481,6 +494,37 @@ contract BHeroDesign is AccessControlUpgradeable, UUPSUpgradeable, IBHeroDesign 
 
   function dummyDeploy() public view returns (uint256) {
     return 0;
+  }
+
+  /**
+   * @dev Internal helper to get month from block.timestamp (1-12)
+   */
+  function getMonth(uint256 timestamp) internal pure returns (uint256) {
+    uint256 daysSinceEpoch = timestamp / 86400;
+    uint256 L = daysSinceEpoch + 719468;
+    uint256 N = (4 * L) / 146097;
+    L = L - (146097 * N + 3) / 4;
+    uint256 Y = (4000 * (L + 1)) / 1461001;
+    L = L - (1461 * Y) / 4 + 31;
+    uint256 M = (80 * L) / 2447;
+    L = M / 11;
+    M = M + 2 - 12 * L;
+    return M;
+  }
+
+  /**
+   * @dev Helper to append a range of IDs to an array
+   */
+  function appendSkins(uint256[] memory pool, uint256 startId, uint256 endId) internal pure returns (uint256[] memory) {
+    uint256 additionalCount = endId - startId + 1;
+    uint256[] memory newPool = new uint256[](pool.length + additionalCount);
+    for (uint256 i = 0; i < pool.length; i++) {
+        newPool[i] = pool[i];
+    }
+    for (uint256 i = 0; i < additionalCount; i++) {
+        newPool[pool.length + i] = startId + i;
+    }
+    return newPool;
   }
 
 }
