@@ -599,5 +599,42 @@ contract BHeroToken is ERC721Upgradeable, AccessControlUpgradeable, PausableUpgr
 
   // function dummyDeploy2() public view returns (uint256) {
   //   return 0;
-  // }
+  //  }
+
+  /**
+   * @dev Upgrades the base hero by burning material heroes of the same level.
+   * L2-L5 upgrades require 2 materials (Total 3).
+   * L6-L10 upgrades require 3 materials (Total 4).
+   * No BCOIN/SEN cost (Gas-only).
+   */
+  function upgrade(uint256 baseId, uint256[] calldata materialIds) external whenNotPaused {
+    address owner = msg.sender;
+    require(_isApprovedOrOwner(owner, baseId), "Base not owned or approved");
+    require(ownerOf(baseId) == owner, "Must be owner of base");
+
+    uint256 baseDetails = tokenDetails[baseId];
+    uint256 baseLevel = BHeroDetails.decodeLevel(baseDetails);
+    
+    // Upgrading to L2-L5 (baseLevel 1-4) needs 2 materials.
+    // Upgrading to L6-L10 (baseLevel 5-9) needs 3 materials.
+    uint256 requiredMaterials = (baseLevel < 5) ? 2 : 3;
+    require(materialIds.length == requiredMaterials, "Invalid material count");
+
+    for (uint256 i = 0; i < materialIds.length; ++i) {
+      uint256 mId = materialIds[i];
+      require(mId != baseId, "Same token");
+      require(ownerOf(mId) == owner, "Material not owned");
+      
+      uint256 mDetails = tokenDetails[mId];
+      require(BHeroDetails.decodeLevel(mDetails) == baseLevel, "Incompatible level");
+      
+      _burn(mId);
+      emit TokenUpgraded(owner, baseId, mId);
+    }
+
+    uint256 newDetails = BHeroDetails.increaseLevel(baseDetails);
+    tokenDetails[baseId] = newDetails;
+
+    emit TokenChanged(owner, baseId, baseDetails, newDetails);
+  }
 }

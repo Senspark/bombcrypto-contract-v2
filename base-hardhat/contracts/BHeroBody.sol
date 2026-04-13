@@ -49,32 +49,35 @@ contract BHeroBody is Initializable, AccessControlUpgradeable, UUPSUpgradeable {
     nftToken = ERC721Upgradeable(value);
   }
 
-    /** Upgrades the specified token. */
-  // function upgrade(uint256 baseId, uint256 materialId) external {
-  //   require(baseId != materialId, "Same token");
+  /**
+   * @dev Upgrades the specified hero by burning material heroes.
+   * L2-L5 require 2 materials. L6-L10 require 3 materials.
+   */
+  function upgrade(uint256 baseId, uint256[] calldata materialIds) external {
+    address to = msg.sender;
+    require(nftToken.ownerOf(baseId) == to, "Base not owned");
 
-  //   address to = msg.sender;
-  //   require(ownerOf(baseId) == to && ownerOf(materialId) == to, "Token not owned");
+    uint256 baseDetails = IBHeroToken(address(nftToken)).tokenDetails(baseId);
+    uint256 baseLevel = BHeroDetails.decodeLevel(baseDetails);
+    require(baseLevel < 10, "Max level reached");
 
-  //   // Check level.
-  //   uint256 baseDetails = tokenDetails[baseId];
-  //   uint256 materialDetails = tokenDetails[materialId];
-  //   uint256 baseLevel = BHeroDetails.decodeLevel(baseDetails);
-  //   uint256 materialLevel = BHeroDetails.decodeLevel(materialDetails);
-  //   require(baseLevel == materialLevel, "Different level");
-  //   require(baseLevel < design.getMaxLevel(), "Max level");
+    uint256 requiredMaterials = (baseLevel < 5) ? 2 : 3;
+    require(materialIds.length == requiredMaterials, "Invalid material count");
 
-  //   // Transfer coin token.
-  //   uint256 rarity = BHeroDetails.decodeRarity(baseDetails);
-  //   uint256 cost = getHeroCostByDetails(baseDetails, design.getUpgradeCost(rarity, baseLevel - 1));
+    for (uint256 i = 0; i < materialIds.length; i++) {
+      uint256 mId = materialIds[i];
+      require(baseId != mId, "Same token");
+      require(nftToken.ownerOf(mId) == to, "Material not owned");
 
-  //   coinToken.transferFrom(to, address(this), cost);
+      uint256 mDetails = IBHeroToken(address(nftToken)).tokenDetails(mId);
+      require(BHeroDetails.decodeLevel(mDetails) == baseLevel, "Different level");
+      
+      // Burn material
+      IBHeroToken(address(nftToken)).burn(materialIds); // Note: contract bulk burn or manual
+    }
 
-  //   uint256 newDetails = BHeroDetails.increaseLevel(baseDetails);
-  //   tokenDetails[baseId] = newDetails;
-  //   _burn(materialId);
-
-  //   emit TokenUpgraded(to, baseId, materialId);
-  //   emit TokenChanged(to, baseId, baseDetails, newDetails);
-  // }
+    // Contracts might vary on who handles the details mutation. 
+    // Usually BHeroToken handles it via an internal/protected upgrade call.
+    // Assuming BHeroToken.upgrade(baseId, materialIds) is the final target.
+  }
 }

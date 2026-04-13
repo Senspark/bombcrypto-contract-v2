@@ -125,7 +125,7 @@ contract BHeroDesign is AccessControlUpgradeable, UUPSUpgradeable, IBHeroDesign 
     dropRate = [8287, 1036, 518, 104, 52, 4];
     mintCost = 10 ether;
     senMintCost = 5 ether;
-    maxLevel = 5;
+    maxLevel = 10;
     upgradeCosts.push([1 ether, 2 ether, 4 ether, 7 ether]);
     upgradeCosts.push([2 ether, 4 ether, 5 ether, 9 ether]);
     upgradeCosts.push([2 ether, 4 ether, 5 ether, 10 ether]);
