@@ -376,7 +376,7 @@ contract BHeroS is Initializable, AccessControlUpgradeable, UUPSUpgradeable {
     require(!usedNonces[msg.sender][nonce], "Nonce has used");
     usedNonces[msg.sender][nonce] = true;
 
-    bytes32 rawMessage = keccak256(abi.encodePacked(msg.sender, idHeroS, nonce));
+    bytes32 rawMessage = keccak256(abi.encodePacked(msg.sender, idHeroS, nonce, block.chainid));
     bytes32 message = getEncodeMessage(rawMessage);
     require(_verify(message, signature), "Message isn't correct");
 
