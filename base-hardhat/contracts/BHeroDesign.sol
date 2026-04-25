@@ -33,6 +33,7 @@ contract BHeroDesign is AccessControlUpgradeable, UUPSUpgradeable, IBHeroDesign 
 
   bytes32 public constant UPGRADER_ROLE = keccak256("UPGRADER_ROLE");
   bytes32 public constant DESIGNER_ROLE = keccak256("DESIGNER_ROLE");
+  bytes32 public constant MINTER_ROLE = keccak256("MINTER_ROLE");
 
   uint256 private constant COLOR_COUNT = 5;
   uint256 private constant BOMB_SKIN_COUNT = 20;
@@ -62,6 +63,8 @@ contract BHeroDesign is AccessControlUpgradeable, UUPSUpgradeable, IBHeroDesign 
   uint256[][6] private numRockUpgradeShieldLevel;
   //all skins
   uint256[] private skinArr;
+
+  mapping(address => uint256) public totalMinted;
 
   function initialize() public initializer {
     __AccessControl_init();
@@ -203,6 +206,10 @@ contract BHeroDesign is AccessControlUpgradeable, UUPSUpgradeable, IBHeroDesign 
     superBoxMintCost = value;
   }
 
+  function incrementMintCount(address user, uint256 amount) external override onlyRole(MINTER_ROLE) {
+    totalMinted[user] += amount;
+  }
+
   /** Sets max upgrade level. */
   function setMaxLevel(uint256 value) external onlyRole(DESIGNER_ROLE) {
     maxLevel = value;
@@ -256,8 +263,52 @@ contract BHeroDesign is AccessControlUpgradeable, UUPSUpgradeable, IBHeroDesign 
     return result;
   }
 
+  /** Returns total token limit. */
   function getTokenLimit() external view override returns (uint256) {
     return tokenLimit;
+  }
+
+  function getBulkLimit(address user) public view override returns (uint256) {
+    uint256 level = getAccountLevel(user);
+    if (level >= 15) return 15;
+    return level; // L1=1, L2=2, ..., L15=15
+  }
+
+  function getAccountLevel(address user) public view override returns (uint256) {
+    uint256 total = totalMinted[user];
+    if (total < 150) return 1;
+    if (total < 330) return 2;
+    if (total < 546) return 3;
+    if (total < 805) return 4;
+    if (total < 1116) return 5;
+    if (total < 1489) return 6;
+    if (total < 1936) return 7;
+    if (total < 2473) return 8;
+    if (total < 3115) return 9;
+    if (total < 3885) return 10;
+    if (total < 4809) return 11;
+    if (total < 5918) return 12;
+    if (total < 7249) return 13;
+    if (total < 8846) return 14;
+    if (total < 10762) return 15;
+    // Hardcore levels (16-20) with 30% extra difficulty
+    if (total < 14700) return 16;
+    if (total < 20840) return 17;
+    if (total < 30420) return 18;
+    if (total < 45360) return 19;
+    return 20;
+  }
+
+  function getMintDiscount(address user) public view override returns (uint256) {
+    uint256 level = getAccountLevel(user);
+    if (level <= 15) return 0;
+    return level - 15; // 16=1%, 17=2%, 18=3%, 19=4%, 20=5%
+  }
+
+  function applyDiscount(uint256 cost, address user) internal view returns (uint256) {
+    uint256 discount = getMintDiscount(user);
+    if (discount == 0) return cost;
+    return cost * (100 - discount) / 100;
   }
 
   function getDropRate() external view override returns (uint256[] memory) {
@@ -268,24 +319,24 @@ contract BHeroDesign is AccessControlUpgradeable, UUPSUpgradeable, IBHeroDesign 
     return superBoxDropRate;
   }
 
-  function getMintCost() external view override returns (uint256) {
-    return mintCost;
+  function getMintCost(address user) external view override returns (uint256) {
+    return applyDiscount(mintCost, user);
   }
 
-  function getSenMintCost() external view override returns (uint256) {
-    return senMintCost;
+  function getSenMintCost(address user) external view override returns (uint256) {
+    return applyDiscount(senMintCost, user);
   }
 
-  function getSuperBoxMintCost() external view override returns (uint256) {
-    return superBoxMintCost;
+  function getSuperBoxMintCost(address user) external view override returns (uint256) {
+    return applyDiscount(superBoxMintCost, user);
   }
 
-  function getMintCostHeroS() external view override returns (uint256) {
-    return mintCostHeroS;
+  function getMintCostHeroS(address user) external view override returns (uint256) {
+    return applyDiscount(mintCostHeroS, user);
   }
 
-  function getSenMintCostHeroS() external view override returns (uint256) {
-    return senMintCostHeroS;
+  function getSenMintCostHeroS(address user) external view override returns (uint256) {
+    return applyDiscount(senMintCostHeroS, user);
   }
   
   function getDropRateHeroS() external view override returns (uint256[] memory) {

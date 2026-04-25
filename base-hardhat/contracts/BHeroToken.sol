@@ -76,6 +76,7 @@ contract BHeroToken is ERC721Upgradeable, AccessControlUpgradeable, PausableUpgr
 
   IERC20Upgradeable public senToken;
   bool public isSuperBoxEnabled;
+  mapping(address => uint256) public lastMintTimestamp;
 
   ///@custom:oz-deleted
   struct FusionData {
@@ -300,14 +301,22 @@ contract BHeroToken is ERC721Upgradeable, AccessControlUpgradeable, PausableUpgr
   function processTokenRequests() external {
     address to = msg.sender;
 
+    // Cooldown check: 1 minute between mints
+    require(block.timestamp >= lastMintTimestamp[to] + 60, "Minting cooldown active (1 min)");
+
     // Temporarily fix reentrancy in _checkOnERC721Received.
     require(!AddressUpgradeable.isContract(to), "Not a user address");
 
     uint256 size = tokenIds[to].length;
     uint256 limit = design.getTokenLimit();
     require(size < limit, "User limit reached");
+    
+    // Bulk limit check based on level
+    uint256 bulkLimit = design.getBulkLimit(to);
+
     // Fixed: Hold heros avoid to limit RAM EVM
     uint256 available = (limit - size) > 100 ? 100 : (limit - size);
+    if (available > bulkLimit) available = bulkLimit;
     uint256 countFusionFailed;
     uint256 countFusionSuccess;
     CreateTokenRequest[] storage requests = tokenRequests[to];
@@ -338,6 +347,11 @@ contract BHeroToken is ERC721Upgradeable, AccessControlUpgradeable, PausableUpgr
         break;
       }
       available -= request.count;
+      
+      // Update totals
+      design.incrementMintCount(to, request.count);
+      lastMintTimestamp[to] = block.timestamp;
+
       requests.pop();
       if (available == 0) {
         break;

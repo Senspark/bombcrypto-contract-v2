@@ -244,10 +244,10 @@ contract BHeroS is Initializable, AccessControlUpgradeable, UUPSUpgradeable {
     uint256 requestCategory;
     uint256 heroCount;
 
-    uint256 costBcoin = bHeroToken.design().getMintCostHeroS() * count;
+    uint256 costBcoin = bHeroToken.design().getMintCostHeroS(msg.sender) * count;
     bcoinToken.transferFrom(user, address(this), costBcoin);
 
-    uint256 costSen = bHeroToken.design().getSenMintCostHeroS() * count;
+    uint256 costSen = bHeroToken.design().getSenMintCostHeroS(msg.sender) * count;
     senToken.transferFrom(user, address(this), costSen);
 
     heroCount = count;
