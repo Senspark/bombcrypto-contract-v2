@@ -217,6 +217,14 @@ contract BHeroDesign is AccessControlUpgradeable, UUPSUpgradeable, IBHeroDesign 
     abilityRate = value;
   }
 
+  /*
+  function setAbilities(uint256[] memory ids, uint256[] memory rates) external onlyRole(DESIGNER_ROLE) {
+    require(ids.length == rates.length, "ids/rates length mismatch");
+    abilityIds = ids;
+    abilityRate = rates;
+  }
+  */
+
   function setRandomizeAbilityCost(
     uint256 rarity,
     uint256 minCost,
@@ -243,7 +251,7 @@ contract BHeroDesign is AccessControlUpgradeable, UUPSUpgradeable, IBHeroDesign 
    * level default is 0 => show level 1
    * value is array number rocks needed
    */
-  function setNumRockUpgradeShieldLevel(uint256 level, uint256[6] memory value) external onlyRole(DESIGNER_ROLE) {
+  function setNumRockUpgradeShieldLevel(uint256 level, uint256[] memory value) external onlyRole(DESIGNER_ROLE) {
     numRockUpgradeShieldLevel[level] = value;
   }
 
@@ -263,6 +271,16 @@ contract BHeroDesign is AccessControlUpgradeable, UUPSUpgradeable, IBHeroDesign 
   function getDropRate() external view override returns (uint256[] memory) {
     return dropRate;
   }
+
+  function getSkinArr() external view returns (uint256[] memory) {
+    return skinArr;
+  }
+
+  /*
+  function getAbilityIds() external view returns (uint256[] memory) {
+    return abilityIds;
+  }
+  */
 
   function getSuperBoxDropRate() external view returns (uint256[] memory) {
     return superBoxDropRate;
@@ -384,7 +402,7 @@ contract BHeroDesign is AccessControlUpgradeable, UUPSUpgradeable, IBHeroDesign 
     uint256 seed =seedVal;
     uint256 category = (detailsVal >> 30) & 31;
     bool isHeroS = ((detailsVal >> 35) & 1) == 1;
-    uint256 skin = (detailsVal >> 135) & (2**5 - 1);
+    uint256 skin = (detailsVal >> 195) & ((uint256(1) << 10) - 1);
 
     bool isFusion = category == 3;
     bool isSuperBox = category == 1;
@@ -464,18 +482,50 @@ contract BHeroDesign is AccessControlUpgradeable, UUPSUpgradeable, IBHeroDesign 
     encodedDetails = details.encode();
   }
 
+  uint256 private constant OLD_ABILITY_POOL_SIZE = 7;
+  uint256 private constant NEW_ABILITY_POOL_SIZE = 3;
+  uint256 private constant TOTAL_ABILITY_POOL_SIZE = OLD_ABILITY_POOL_SIZE + NEW_ABILITY_POOL_SIZE;
+
   function generateAbilities(uint256 seed, uint256 rarity)
     internal
     view
     returns (uint256 nextSeed, uint256[] memory abilities)
   {
-    uint256[] memory rate = abilityRate;
-    if (rarity == 0) {
-      // Common, ignore piercing block skill.
-      rate[2] = 0;
+    uint256 needed = rarityStats[rarity].ability;
+    require(needed <= TOTAL_ABILITY_POOL_SIZE, "rarityStats.ability exceeds total pool");
+
+    abilities = new uint256[](needed);
+    uint256 phase1Size = needed < OLD_ABILITY_POOL_SIZE ? needed : OLD_ABILITY_POOL_SIZE;
+
+    {
+      uint256[OLD_ABILITY_POOL_SIZE] memory OLD_IDS = [uint256(1), 2, 3, 4, 5, 6, 7];
+      uint256[] memory oldRate = new uint256[](OLD_ABILITY_POOL_SIZE);
+      oldRate[0] = 1; oldRate[1] = 2; oldRate[2] = 1; oldRate[3] = 1;
+      oldRate[4] = 1; oldRate[5] = 2; oldRate[6] = 2;
+      if (rarity == 0) {
+        // Common, ignore piercing block skill.
+        oldRate[2] = 0;
+      }
+      uint256 idx;
+      for (uint256 i = 0; i < phase1Size; ++i) {
+        (seed, idx) = Utils.weightedRandom(seed, oldRate);
+        oldRate[idx] = 0;
+        abilities[i] = OLD_IDS[idx];
+      }
     }
-    Stats storage stats = rarityStats[rarity];
-    (seed, abilities) = Utils.weightedRandomSampling(seed, abilityIds, rate, stats.ability);
+
+    if (needed > OLD_ABILITY_POOL_SIZE) {
+      uint256[NEW_ABILITY_POOL_SIZE] memory NEW_IDS = [uint256(8), 9, 10];
+      uint256[] memory newRate = new uint256[](NEW_ABILITY_POOL_SIZE);
+      newRate[0] = 1; newRate[1] = 1; newRate[2] = 1;
+      uint256 phase2Size = needed - OLD_ABILITY_POOL_SIZE;
+      uint256 idx;
+      for (uint256 i = 0; i < phase2Size; ++i) {
+        (seed, idx) = Utils.weightedRandom(seed, newRate);
+        newRate[idx] = 0;
+        abilities[phase1Size + i] = NEW_IDS[idx];
+      }
+    }
     nextSeed = seed;
   }
 

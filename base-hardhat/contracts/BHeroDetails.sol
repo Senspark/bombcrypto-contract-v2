@@ -85,8 +85,10 @@ library BHeroDetails {
     }
     value |= details.numUpgradeShieldLevel << 235;
     value |= details.numResetShield << 240;
-    
-    value |= highBitSkin << 245;
+
+    // highBitSkin lives at bit 250 (5 bits, range 250-254). Bit 255 reserved.
+    // Original 1024-skin design wrote at bit 245 which collided with numResetShield (240-249).
+    value |= highBitSkin << 250;
 
     return value;
   }
@@ -98,8 +100,8 @@ library BHeroDetails {
     result.level = decodeLevel(details);
     result.color = (details >> 50) & 31;
 
-    uint256 highBitSkin = (details >> 55) & 31;
-    uint256 lowBitSkin = (details >> 245) & 31;
+    uint256 lowBitSkin = (details >> 55) & 31;
+    uint256 highBitSkin = (details >> 250) & 31;
 
     result.skin = (highBitSkin << 5) | lowBitSkin;
 
@@ -124,7 +126,9 @@ library BHeroDetails {
     }
     result.numUpgradeShieldLevel = (details >> 235) & 31;
     result.numResetShield = (details >> 240) & (2 ** 10 - 1);
-    // dummy 245
+    // bits 240-249: numResetShield (10 bits)
+    // bits 250-254: highBitSkin (5 bits, read above)
+    // bit 255: reserved
 
   }
   
