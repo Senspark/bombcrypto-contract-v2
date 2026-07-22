@@ -178,6 +178,19 @@ contract BHeroToken is ERC721Upgradeable, AccessControlUpgradeable, PausableUpgr
     senToken = IERC20Upgradeable(value);
   }
 
+  // Commented out 2026-05-05 to free bytecode space (BHeroToken was at 98.4% of EIP-170 limit).
+  // Uncomment + redeploy when admin needs to recover BCOIN/SEN locked in the proxy.
+  // The WITHDRAWER_ROLE constant at line 50 is left in place — it's a small constant.
+  //
+  // function withdraw() external onlyRole(WITHDRAWER_ROLE) {
+  //   coinToken.transfer(msg.sender, coinToken.balanceOf(address(this)));
+  //   senToken.transfer(msg.sender, senToken.balanceOf(address(this)));
+  // }
+  //
+  // function withdrawCustomToken(address value) external onlyRole(WITHDRAWER_ROLE) {
+  //   IERC20(value).transfer(msg.sender, IERC20(value).balanceOf(address(this)));
+  // }
+
   function forceRemoveAllRequest(address user) external onlyRole(DESIGNER_ROLE) {
     CreateTokenRequest[] storage requests = tokenRequests[user];
     for (uint256 i = requests.length; i > 0; --i) {
@@ -190,7 +203,7 @@ contract BHeroToken is ERC721Upgradeable, AccessControlUpgradeable, PausableUpgr
     uint256[] storage ids = tokenIds[to];
     uint256[] memory result = new uint256[](ids.length);
     for (uint256 i = 0; i < ids.length; ++i) {
-      result[i] = tokenDetails[ids[i]] | (uint256(hasPendingRandomization(ids[i]) ? 1 : 0) << 250);
+      result[i] = tokenDetails[ids[i]];
     }
     return result;
   }

@@ -38,9 +38,11 @@ contract BHeroS is Initializable, AccessControlUpgradeable, UUPSUpgradeable {
 
   uint256 maxBurn;
   //create rock from Hero type
-  uint8[6] numRockCreate;
+  // Widened from uint8[6] → uint8[10] for rarities 0-9. Same single slot, first 6 bytes preserve V1 data.
+  // Upgrade requires { unsafeSkipStorageCheck: true } in upgradeProxy; verify byte-compat in fork rehearsal.
+  uint8[10] numRockCreate;
   //number rock need to reset shield
-  uint8[6] numRockResetShield;
+  uint8[10] numRockResetShield;
 
   //User info
   struct UserInfo {
@@ -124,7 +126,8 @@ contract BHeroS is Initializable, AccessControlUpgradeable, UUPSUpgradeable {
   function checkNumHeroBurn(uint256 detailHeroS, uint256[] memory listIdHero) public pure returns (bool) {
     uint256 rarityHeroS = BHeroDetails.decodeRarity(detailHeroS);
 
-    uint8[6] memory numHero = [1, 1, 2, 3, 4, 5];
+    // PLACEHOLDER values for rarities 6-9 — review before mainnet
+    uint8[10] memory numHero = [1, 1, 2, 3, 4, 5, 6, 7, 8, 9];
     return listIdHero.length == numHero[rarityHeroS];
   }
 
@@ -162,18 +165,18 @@ contract BHeroS is Initializable, AccessControlUpgradeable, UUPSUpgradeable {
   }
 
   /**
-   * polygon: [5,10,20,35,55,80]
-   * BSC: [1,2,3,4,5,6]
+   * polygon: [5,10,20,35,55,80,...] (extend with placeholder for rarities 6-9 before mainnet)
+   * BSC: [1,2,3,4,5,6,7,8,9,10]
    */
-  function setNumRockCreate(uint8[6] memory value) external onlyRole(DESIGNER_ROLE) {
+  function setNumRockCreate(uint8[10] memory value) external onlyRole(DESIGNER_ROLE) {
     numRockCreate = value;
   }
 
   /**
-   * polygon: [1,2,4,6,8,10]
-   * BSC: [1,1,2,3,4,5]
+   * polygon: [1,2,4,6,8,10,...] (extend with placeholder for rarities 6-9 before mainnet)
+   * BSC: [1,1,2,3,4,5,6,7,8,9]
    */
-  function setNumRockResetShield(uint8[6] memory value) external onlyRole(DESIGNER_ROLE) {
+  function setNumRockResetShield(uint8[10] memory value) external onlyRole(DESIGNER_ROLE) {
     numRockResetShield = value;
   }
 
@@ -201,7 +204,7 @@ contract BHeroS is Initializable, AccessControlUpgradeable, UUPSUpgradeable {
   }
 
   function getPercentHeroS(uint256[] memory heroTypes) public pure returns (uint256[] memory) {
-    uint256[] memory dropRate = new uint256[](6);
+    uint256[] memory dropRate = new uint256[](10);
 
     for (uint256 i = 0; i < heroTypes.length; ++i) {
       dropRate[heroTypes[i]]++;
@@ -247,8 +250,9 @@ contract BHeroS is Initializable, AccessControlUpgradeable, UUPSUpgradeable {
     uint256 costBcoin = bHeroToken.design().getMintCostHeroS() * count;
     bcoinToken.transferFrom(user, address(this), costBcoin);
 
-    uint256 costSen = bHeroToken.design().getSenMintCostHeroS() * count;
-    senToken.transferFrom(user, address(this), costSen);
+    // SEN mint cost disabled (2026-05-15). Uncomment to re-enable.
+    // uint256 costSen = bHeroToken.design().getSenMintCostHeroS() * count;
+    // senToken.transferFrom(user, address(this), costSen);
 
     heroCount = count;
     requestCategory = 0;
@@ -455,7 +459,7 @@ contract BHeroS is Initializable, AccessControlUpgradeable, UUPSUpgradeable {
   ) external canFusion(mainMaterials, buffMaterials) {
     uint256 rarityMain;
     uint256 rarityTarget;
-    uint256[] memory dropRateOption = new uint256[](6);
+    uint256[] memory dropRateOption = new uint256[](10);
     (rarityMain, rarityTarget, dropRateOption) = _calculateFusion(mainMaterials, buffMaterials);
     address to = msg.sender;
 
@@ -483,10 +487,10 @@ contract BHeroS is Initializable, AccessControlUpgradeable, UUPSUpgradeable {
     uint256 countMain = mainMaterials.length;
     uint256 rarityMain = _getRarityByHeroS(mainMaterials[0]);
     uint256 rarityTarget = rarityMain + 1;
-    require(rarityTarget < 6, "Rarity target max is 5");
+    require(rarityTarget < 10, "Rarity target max is 9");
     uint256 percent;
     uint256 surplusPercent;
-    uint256[] memory dropRateOption = new uint256[](6);
+    uint256[] memory dropRateOption = new uint256[](10);
     if (countMain == 4) {
       dropRateOption[rarityTarget] = 10000;
     } else {

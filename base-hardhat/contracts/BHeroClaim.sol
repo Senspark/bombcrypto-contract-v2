@@ -64,7 +64,15 @@ contract BHeroClaim is AccessControlUpgradeable, PausableUpgradeable, UUPSUpgrad
     uint256[] calldata dropRates,
     uint256 skin
   ) external onlyRole(MINTER_ROLE) {
-    require(rarity <= 6, "Invalid rarity");
+    require(rarity <= 10, "Invalid rarity");
+    // details layout:
+    //   bits   0–9   : count
+    //   bits  10–14  : rarity
+    //   bits  15–19  : category
+    //   bits  20–24  : isHeroS
+    //   bits  25–29  : dropRates.length
+    //   bits  30–179 : 10 drop rates × 15 bits
+    //   bits 180–189 : skin (10 bits)
     uint256 details;
     details |= count;
     details |= rarity << 10;
@@ -76,9 +84,9 @@ contract BHeroClaim is AccessControlUpgradeable, PausableUpgradeable, UUPSUpgrad
       details |= dropRates[i] << (30 + i * 15);
       totalDropRate += dropRates[i];
     }
-    details |= skin << 120;
+    details |= (skin & ((uint256(1) << 10) - 1)) << 180;
     require(totalDropRate > 0, "Drop rate must be positive");
-    require(dropRates.length == 6, "Invalid drop rate size");
+    require(dropRates.length == 10, "Invalid drop rate size");
     requestDetails[to].push(details);
   }
 
@@ -104,12 +112,15 @@ contract BHeroClaim is AccessControlUpgradeable, PausableUpgradeable, UUPSUpgrad
 
       uint256 targetBlock = block.number + 5;
 
-      // category: 5 bits.
-      // isHeroS: 5 bits.
-      // dropLength: 5 bits.
-      // max 6 drops: 15 * 6 = 90 bits.
-      // skin: 5 bits.
-      uint256 moreDetails = (details >> 15) & ((uint256(1) << 110) - 1);
+      // Capture bits 15..189 of details:
+      //   category (5) + isHeroS (5) + dropLength (5) + 10 drops × 15 (150) + skin 10 = 175 bits
+      // After `<< 30` shift below, in tokenRequestDetails:
+      //   bits 30–34 : category
+      //   bits 35–39 : isHeroS
+      //   bits 40–44 : dropLength
+      //   bits 45–194: 10 drop rates × 15 bits
+      //   bits 195–204: skin (10 bits)
+      uint256 moreDetails = (details >> 15) & ((uint256(1) << 175) - 1);
 
       uint256 tokenRequestDetails = targetBlock | (moreDetails << 30);
       heroToken.createTokenRequest(to, count, rarity, targetBlock, tokenRequestDetails);

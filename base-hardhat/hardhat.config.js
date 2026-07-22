@@ -3,8 +3,7 @@ require('@openzeppelin/hardhat-upgrades');
 require("@nomicfoundation/hardhat-chai-matchers");
 require("@nomicfoundation/hardhat-ledger");
 
-const { privateKey, bscApiKey, polygonApiKey, oklinkApiKey } = require('./env.json');
-
+const { privateKey, etherscanApiKey } = require('./env.json');
 
 module.exports = {
   solidity: {
@@ -25,7 +24,7 @@ module.exports = {
     bsc: {
       url: "https://bsc-dataseed.binance.org/",
       chainId: 56,
-      gasPrice: 20000000000,
+      gasPrice: 1000000000,
       accounts: [privateKey]
     },
     bsctestnet: {
@@ -37,33 +36,26 @@ module.exports = {
     polygon: {
       url: "https://polygon-rpc.com/",
       chainId: 137,
-      gasPrice: 100000000000,
+      gasPrice: 300000000000,
       accounts: [privateKey],
     },
     polygontestnet: {
-      url: "https://go.getblock.io/5dad1b5c99234f9eae857fdd87a0627b",
-      chainId: 80001,
-      gasPrice: 20000000000,
+      url: "https://polygon-amoy.drpc.org",
+      chainId: 80002,
+      gasPrice: 35000000000,
       accounts: [privateKey]
     },
     polygonAmoy: {
-      url: "https://rpc-amoy.polygon.technology/",
+      url: "https://polygon-amoy.drpc.org",
       chainId: 80002,
       gasPrice: 35000000000,
       accounts: [privateKey]
     }
   },
   etherscan: {
-    // Your API key for Etherscan
-    // Obtain one at https://bscscan.com/
-    apiKey: {
-      bsc: bscApiKey,
-      bscTestnet: bscApiKey,
-      polygon: polygonApiKey,
-      polygonMumbai: polygonApiKey,
-      polygonAmoy: polygonApiKey
-    }
-    , 
+    // Etherscan V2 unified API key — single key works for BSC, Polygon, and other supported chains.
+    // Obtain at https://etherscan.io/myapikey
+    apiKey: etherscanApiKey,
     customChains: [
       {
         network: "polygonAmoy",
