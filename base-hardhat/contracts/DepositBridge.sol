@@ -44,6 +44,11 @@ contract DepositBridge is Initializable, AccessControlUpgradeable, UUPSUpgradeab
   bool public depositEnabled;
   bool public withdrawEnabled;
 
+  // --- Treasury fee-swap state (defaults zero/false on upgrade; manager must configure first) ---
+  address public usdtToken;                          // swap output; the only token withdrawTreasuryUsdt moves
+  mapping(address => bool) public swapRouterAllowed;  // whitelist of DEX routers swapFeesToUSDT may call
+  bool private _swapping;                             // reentrancy latch (false on upgrade = unlocked)
+
   event Deposit(address indexed user, address indexed token, uint256 amount, uint256 depositedTotal);
   event Withdraw(
     address indexed user,
@@ -56,10 +61,13 @@ contract DepositBridge is Initializable, AccessControlUpgradeable, UUPSUpgradeab
   );
   event LiquidityFunded(address indexed token, address indexed from, uint256 amount);
   event FeesSwept(address indexed token, address indexed to, uint256 amount);
+  event TokensRescued(address indexed token, address indexed to, uint256 amount);
   event FeePercentChanged(uint256 feePercent);
   event SupportedTokenChanged(address indexed token, bool supported);
   event DepositEnabledChanged(bool enabled);
   event WithdrawEnabledChanged(bool enabled);
+  event FeesSwapped(address indexed tokenIn, uint256 amountIn, uint256 usdtOut, address indexed router);
+  event TreasuryUsdtWithdrawn(address indexed to, uint256 amount);
 
   function initialize() public initializer {
     __AccessControl_init();
@@ -186,6 +194,90 @@ contract DepositBridge is Initializable, AccessControlUpgradeable, UUPSUpgradeab
     IERC20Upgradeable(token).safeTransfer(to, amount);
 
     emit FeesSwept(token, to, amount);
+  }
+
+  // Liquidation escape hatch for retiring this proxy; not for routine ops (use sweepFees instead).
+  function rescueTokens(address token, address to) external onlyRole(DEFAULT_ADMIN_ROLE) {
+    uint256 bal = IERC20Upgradeable(token).balanceOf(address(this));
+    require(bal > 0, "Nothing to rescue");
+
+    IERC20Upgradeable(token).safeTransfer(to, bal);
+
+    emit TokensRescued(token, to, bal);
+  }
+
+  // --- Treasury fee swap ---
+
+  modifier nonReentrantSwap() {
+    require(!_swapping, "Reentrant");
+    _swapping = true;
+    _;
+    _swapping = false;
+  }
+
+  function setUsdtToken(address usdt) external onlyRole(MANAGER_ROLE) {
+    require(usdt != address(0), "Zero address");
+    usdtToken = usdt;
+  }
+
+  function setSwapRouter(address router, bool allowed) external onlyRole(MANAGER_ROLE) {
+    require(router != address(0), "Zero address");
+    swapRouterAllowed[router] = allowed;
+  }
+
+  // Convert accrued fees into USDT via a whitelisted router; route/calldata come from the manager's
+  // off-chain UI. Approval is scoped to amountIn and reset after; balance deltas enforce spent <=
+  // amountIn and usdtOut >= minUsdtOut so the quote isn't trusted blindly.
+  function swapFeesToUSDT(
+    address tokenIn,
+    uint256 amountIn,
+    address router,
+    bytes calldata swapCalldata,
+    uint256 minUsdtOut
+  ) external onlyRole(MANAGER_ROLE) nonReentrantSwap {
+    address usdt = usdtToken;
+    require(usdt != address(0), "USDT not set");
+    require(tokenIn != usdt, "tokenIn is USDT");
+    require(swapRouterAllowed[router], "Router not allowed");
+    require(amountIn > 0, "amountIn=0");
+    require(amountIn <= collectedFees[tokenIn], "Exceeds collected fees");
+
+    uint256 inBefore = IERC20Upgradeable(tokenIn).balanceOf(address(this));
+    uint256 usdtBefore = IERC20Upgradeable(usdt).balanceOf(address(this));
+
+    // Effects before interaction; reconciled below if the router underspends.
+    collectedFees[tokenIn] -= amountIn;
+    sweptFees[tokenIn] += amountIn;
+
+    IERC20Upgradeable(tokenIn).forceApprove(router, amountIn);
+    (bool ok, ) = router.call(swapCalldata);
+    require(ok, "Swap failed");
+    IERC20Upgradeable(tokenIn).forceApprove(router, 0);
+
+    uint256 spent = inBefore - IERC20Upgradeable(tokenIn).balanceOf(address(this));
+    require(spent <= amountIn, "Overspent");
+    if (spent < amountIn) {
+      uint256 refund = amountIn - spent;
+      collectedFees[tokenIn] += refund;
+      sweptFees[tokenIn] -= refund;
+    }
+
+    uint256 usdtOut = IERC20Upgradeable(usdt).balanceOf(address(this)) - usdtBefore;
+    require(usdtOut >= minUsdtOut, "Insufficient USDT out");
+
+    emit FeesSwapped(tokenIn, spent, usdtOut, router);
+  }
+
+  // USDT isn't a bridged token, so moving it never touches user liquidity accounting.
+  function withdrawTreasuryUsdt(address to, uint256 amount) external onlyRole(MANAGER_ROLE) {
+    address usdt = usdtToken;
+    require(usdt != address(0), "USDT not set");
+    require(to != address(0), "Zero address");
+    require(amount > 0, "amount=0");
+
+    IERC20Upgradeable(usdt).safeTransfer(to, amount);
+
+    emit TreasuryUsdtWithdrawn(to, amount);
   }
 
   // --- Internal ---
