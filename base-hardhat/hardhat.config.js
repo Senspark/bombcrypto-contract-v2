@@ -3,7 +3,25 @@ require('@openzeppelin/hardhat-upgrades');
 require("@nomicfoundation/hardhat-chai-matchers");
 require("@nomicfoundation/hardhat-ledger");
 
-const { privateKey, etherscanApiKey } = require('./env.json');
+const fs = require('fs');
+const path = require('path');
+
+const { privateKey, privateKey2, etherscanApiKey } = require('./env.json');
+
+// privateKey2 is optional. When present it becomes signers[1].
+const accounts = [privateKey, privateKey2].filter(Boolean);
+
+// Minimal .env loader (no dotenv dep).
+const dotEnvPath = path.join(__dirname, '.env');
+if (fs.existsSync(dotEnvPath)) {
+  for (const line of fs.readFileSync(dotEnvPath, 'utf8').split('\n')) {
+    const match = line.match(/^\s*([\w.-]+)\s*=\s*(.*)?\s*$/);
+    if (!match) continue;
+    const key = match[1];
+    const value = (match[2] || '').trim().replace(/^["']|["']$/g, '');
+    if (!(key in process.env)) process.env[key] = value;
+  }
+}
 
 module.exports = {
   solidity: {
@@ -22,34 +40,30 @@ module.exports = {
       ],
     },
     bsc: {
-      url: "https://bsc-dataseed.binance.org/",
+      url: process.env.PREMIUM_BSC_RPC || "https://bsc-dataseed.binance.org/",
       chainId: 56,
-      gasPrice: 1000000000,
-      accounts: [privateKey]
+      // 0.1 gwei.
+      gasPrice: 100000000,
+      accounts
     },
     bsctestnet: {
       url: "https://data-seed-prebsc-1-s1.binance.org:8545",
       chainId: 97,
-      gasPrice: 20000000000,
-      accounts: [privateKey]
+      // 0.5 gwei.
+      gasPrice: 500000000,
+      accounts
     },
     polygon: {
-      url: "https://polygon-rpc.com/",
+      url: process.env.PREMIUM_POLYGON_RPC || "https://polygon-rpc.com/",
       chainId: 137,
       gasPrice: 300000000000,
-      accounts: [privateKey],
-    },
-    polygontestnet: {
-      url: "https://polygon-amoy.drpc.org",
-      chainId: 80002,
-      gasPrice: 35000000000,
-      accounts: [privateKey]
+      accounts,
     },
     polygonAmoy: {
       url: "https://polygon-amoy.drpc.org",
       chainId: 80002,
       gasPrice: 35000000000,
-      accounts: [privateKey]
+      accounts
     }
   },
   etherscan: {

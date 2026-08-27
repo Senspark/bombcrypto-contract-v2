@@ -126,7 +126,6 @@ contract BHeroToken is ERC721Upgradeable, AccessControlUpgradeable, PausableUpgr
   }
 
   /** Creates a token with details. */
-  // Pending.
   // function createToken(address to, uint256 details) external onlyRole(MINTER_ROLE) {
   //   uint256 id = tokenIdCounter.current();
   //   tokenIdCounter.increment();
@@ -141,7 +140,8 @@ contract BHeroToken is ERC721Upgradeable, AccessControlUpgradeable, PausableUpgr
     uint256 details
   ) internal {
     tokenDetails[id] = details;
-    _safeMint(to, id);
+    // _mint, not _safeMint: no ERC721 receiver callback in the mint path.
+    _mint(to, id);
     emit TokenCreated(to, id, details);
   }
 
@@ -178,9 +178,7 @@ contract BHeroToken is ERC721Upgradeable, AccessControlUpgradeable, PausableUpgr
     senToken = IERC20Upgradeable(value);
   }
 
-  // Commented out 2026-05-05 to free bytecode space (BHeroToken was at 98.4% of EIP-170 limit).
-  // Uncomment + redeploy when admin needs to recover BCOIN/SEN locked in the proxy.
-  // The WITHDRAWER_ROLE constant at line 50 is left in place — it's a small constant.
+  // Disabled to stay under the contract size limit.
   //
   // function withdraw() external onlyRole(WITHDRAWER_ROLE) {
   //   coinToken.transfer(msg.sender, coinToken.balanceOf(address(this)));
@@ -239,7 +237,9 @@ contract BHeroToken is ERC721Upgradeable, AccessControlUpgradeable, PausableUpgr
   }
 
   /**
-   * @notice external function and protected with role
+   * @notice External function, protected with role.
+   *
+   * `details` bit 35 (isHeroS) must always be set by the caller.
    */
   function createTokenRequest(
     address to,
@@ -310,17 +310,18 @@ contract BHeroToken is ERC721Upgradeable, AccessControlUpgradeable, PausableUpgr
   }
 
   /** Processes token requests. */
-  function processTokenRequests() external {
+  function processTokenRequests() external whenNotPaused {
     address to = msg.sender;
 
-    // Temporarily fix reentrancy in _checkOnERC721Received.
-    require(!AddressUpgradeable.isContract(to), "Not a user address");
-
-    uint256 size = tokenIds[to].length;
-    uint256 limit = design.getTokenLimit();
-    require(size < limit, "User limit reached");
-    // Fixed: Hold heros avoid to limit RAM EVM
-    uint256 available = (limit - size) > 100 ? 100 : (limit - size);
+    // Scoped to keep stack usage down in the loop below.
+    uint256 available;
+    {
+      uint256 size = tokenIds[to].length;
+      uint256 limit = design.getTokenLimit();
+      require(size < limit, "User limit reached");
+      // Fixed: Hold heros avoid to limit RAM EVM
+      available = (limit - size) > 100 ? 100 : (limit - size);
+    }
     uint256 countFusionFailed;
     uint256 countFusionSuccess;
     CreateTokenRequest[] storage requests = tokenRequests[to];
@@ -329,7 +330,13 @@ contract BHeroToken is ERC721Upgradeable, AccessControlUpgradeable, PausableUpgr
       CreateTokenRequest storage request = requests[i - 1];
       uint256 amount = available < request.count ? available : request.count;
       uint256 tokenId = tokenIdCounter.current();
-      uint256[] memory details = design.createTokens(tokenId, amount, request.details);
+      // Salt is per request and fixed at commit time.
+      uint256[] memory details = design.createTokens(
+        tokenId,
+        amount,
+        request.details,
+        uint256(keccak256(abi.encode(to, i - 1)))
+      );
 
       //check fusion
       uint256 category = (request.details >> 30) & 31;
@@ -496,6 +503,9 @@ contract BHeroToken is ERC721Upgradeable, AccessControlUpgradeable, PausableUpgr
     return cost;
   }
 
+  // Same index mismatch as fixTransfer below - index1 is read from tokenDetails[id] but
+  // indexes tokenIds[oldOwner]. See that function's note for the cause and the symptom
+  // to check. Admin-only, so the blast radius is smaller.
   function removeIdFromOldOwner(uint256 id, address oldOwner) external onlyRole(DESIGNER_ROLE) {
     // check this hero id that from oldOwner
     bool checkOldOwner = false;
@@ -515,6 +525,17 @@ contract BHeroToken is ERC721Upgradeable, AccessControlUpgradeable, PausableUpgr
     tokenDetails[lastId] = BHeroDetails.setIndex(tokenDetails[lastId], index1);
   }
 
+  // Repairs wallets desynced when direct hero transfers were opened up. Before that,
+  // transfers were routed through a company contract that kept tokenIds and the packed
+  // index in step, so heroes that moved around the switch left tokenIds[oldOwner] still
+  // holding the id. Symptom: balanceOf(wallet) != getTotalHeroByUser(wallet), which must
+  // always match. No new desyncs occur - _beforeTokenTransfer maintains both sides now.
+  //
+  // Hazard: index1 below is read from tokenDetails[id], the position inside the *current*
+  // owner's array, then applied to tokenIds[oldOwner]. If those disagree it overwrites an
+  // unrelated hero of oldOwner and pops it out while ERC721 still reports oldOwner as the
+  // holder - turning one desync into two. The scan loop below already finds the real
+  // position; use that loop variable instead of decodeIndex before extending this.
   function fixTransfer(uint256 id, address newOwner, address oldOwner) external {
     require((ownerOf(id) == msg.sender) || hasRole(DESIGNER_ROLE, msg.sender), "Owner of hero id or Admin");
     require(msg.sender != oldOwner, "Old owner need != owner");
@@ -584,6 +605,7 @@ contract BHeroToken is ERC721Upgradeable, AccessControlUpgradeable, PausableUpgr
     uint256 limit = design.getTokenLimit();
     //require(size < limit, "User limit reached");
 
+    // Always 1, never a parameter: normal BHero is deprecated and only BHeroS is ever minted.
     uint256 isHeroS = 1;
     uint256[] memory dropRateOption = design.getDropRate();
     requestCreateToken(_to, _count, 0, 0, isHeroS, dropRateOption);

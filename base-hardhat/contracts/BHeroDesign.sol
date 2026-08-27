@@ -49,6 +49,7 @@ contract BHeroDesign is AccessControlUpgradeable, UUPSUpgradeable, IBHeroDesign 
   uint256[] private abilityRate;
   AbilityDesign[] private abilityDesigns;
   uint256 private skinCount;
+  // Reserved slots; kept for storage layout.
   uint256[] private superBoxDropRate;
   uint256 private superBoxMintCost;
   uint256 private senMintCost;
@@ -56,9 +57,7 @@ contract BHeroDesign is AccessControlUpgradeable, UUPSUpgradeable, IBHeroDesign 
   uint256 private senMintCostHeroS;
   //using in HeroS
   uint256[] private dropRateHeroS;
-  uint256 private constant maskLast8Bits = uint256(0xff);
-  uint256 private constant maskFirst248Bits = ~uint256(0xff);
-  //number rock need to upgrade shield level
+  // Reserved slot; kept for storage layout.
   uint256[][6] private numRockUpgradeShieldLevel;
   //all skins
   uint256[] private skinArr;
@@ -139,16 +138,10 @@ contract BHeroDesign is AccessControlUpgradeable, UUPSUpgradeable, IBHeroDesign 
     abilityDesigns.push(AbilityDesign(35 ether, 60 ether, 5 ether));
     abilityDesigns.push(AbilityDesign(50 ether, 80 ether, 6 ether));
     skinCount = 10;
-    superBoxDropRate = [8424, 1036, 418, 51, 21, 50];
-    superBoxMintCost = 50 ether;
     mintCostHeroS = 45 ether;
     senMintCostHeroS = 10 ether;
     dropRateHeroS = [8287, 1036, 518, 104, 52, 4];
     //default apply HeroS
-    numRockUpgradeShieldLevel[0] = [0, 0, 0, 0, 0, 0];
-    numRockUpgradeShieldLevel[1] = [1, 2, 4, 6, 8, 10];
-    numRockUpgradeShieldLevel[2] = [1, 2, 4, 6, 8, 10];
-    numRockUpgradeShieldLevel[3] = [1, 2, 4, 6, 8, 10];
     //skin value
     skinArr = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 14, 15, 16];
   }
@@ -178,9 +171,11 @@ contract BHeroDesign is AccessControlUpgradeable, UUPSUpgradeable, IBHeroDesign 
     dropRateHeroS = value;
   }
 
+  /*
   function setSuperBoxDropRate(uint256[] memory value) external onlyRole(DESIGNER_ROLE) {
     superBoxDropRate = value;
   }
+  */
 
   /** Sets the minting fee. */
   function setMintCost(uint256 value) external onlyRole(DESIGNER_ROLE) {
@@ -199,9 +194,11 @@ contract BHeroDesign is AccessControlUpgradeable, UUPSUpgradeable, IBHeroDesign 
     senMintCostHeroS = value;
   }
 
+  /*
   function setSuperBoxMintCost(uint256 value) external onlyRole(DESIGNER_ROLE) {
     superBoxMintCost = value;
   }
+  */
 
   /** Sets max upgrade level. */
   function setMaxLevel(uint256 value) external onlyRole(DESIGNER_ROLE) {
@@ -246,14 +243,14 @@ contract BHeroDesign is AccessControlUpgradeable, UUPSUpgradeable, IBHeroDesign 
     skinArr = value;
   }
 
-  /**
-   * Change number rocks need to upgrade shield level
-   * level default is 0 => show level 1
-   * value is array number rocks needed
-   */
+  /*
+  // Change number rocks need to upgrade shield level
+  // level default is 0 => show level 1
+  // value is array number rocks needed
   function setNumRockUpgradeShieldLevel(uint256 level, uint256[] memory value) external onlyRole(DESIGNER_ROLE) {
     numRockUpgradeShieldLevel[level] = value;
   }
+  */
 
   function getRarityStats() external view returns (Stats[] memory) {
     uint256 size = dropRate.length;
@@ -282,9 +279,11 @@ contract BHeroDesign is AccessControlUpgradeable, UUPSUpgradeable, IBHeroDesign 
   }
   */
 
+  /*
   function getSuperBoxDropRate() external view returns (uint256[] memory) {
     return superBoxDropRate;
   }
+  */
 
   function getMintCost() external view override returns (uint256) {
     return mintCost;
@@ -294,9 +293,11 @@ contract BHeroDesign is AccessControlUpgradeable, UUPSUpgradeable, IBHeroDesign 
     return senMintCost;
   }
 
+  /*
   function getSuperBoxMintCost() external view override returns (uint256) {
     return superBoxMintCost;
   }
+  */
 
   function getMintCostHeroS() external view override returns (uint256) {
     return mintCostHeroS;
@@ -336,15 +337,36 @@ contract BHeroDesign is AccessControlUpgradeable, UUPSUpgradeable, IBHeroDesign 
     return abilityDesigns;
   }
 
+  /*
   function getRockUpgradeShieldLevel(uint256 rarity, uint256 level) external view override returns (uint256) {
     return numRockUpgradeShieldLevel[level][rarity];
   }
+  */
 
   function createTokens(
     uint256 tokenId,
     uint256 count,
     uint256 details
   ) external view override returns (uint256[] memory tokenDetails) {
+    // Legacy signature: salt defaults to tokenId.
+    return _createTokens(tokenId, count, details, tokenId);
+  }
+
+  function createTokens(
+    uint256 tokenId,
+    uint256 count,
+    uint256 details,
+    uint256 salt
+  ) external view override returns (uint256[] memory tokenDetails) {
+    return _createTokens(tokenId, count, details, salt);
+  }
+
+  function _createTokens(
+    uint256 tokenId,
+    uint256 count,
+    uint256 details,
+    uint256 salt
+  ) internal view returns (uint256[] memory tokenDetails) {
     tokenDetails = new uint256[](count);
     uint256 rarity;
     uint256 targetBlock = details & ((1 << 30) - 1);
@@ -371,17 +393,13 @@ contract BHeroDesign is AccessControlUpgradeable, UUPSUpgradeable, IBHeroDesign 
         }
       }
 
-      // Re-roll seed.
-      targetBlock = (block.number & maskFirst248Bits) + (targetBlock & maskLast8Bits);
-      if (targetBlock >= block.number) {
-        targetBlock -= 256;
-      }
-      seed = uint256(blockhash(targetBlock));
+      // Expired: the seed derives from the request's own targetBlock.
+      seed = uint256(keccak256(abi.encode(targetBlock)));
     }
 
     for (uint256 i = 0; i < count; ++i) {
       uint256 id = tokenId + i;
-      uint256 tokenSeed = uint256(keccak256(abi.encode(seed, id)));
+      uint256 tokenSeed = uint256(keccak256(abi.encode(seed, salt, i)));
       uint256 detailResult;
       (, detailResult) = createRandomToken(tokenSeed, id, rarity, details, dropRateOption);
       tokenDetails[i] = detailResult;
@@ -401,11 +419,11 @@ contract BHeroDesign is AccessControlUpgradeable, UUPSUpgradeable, IBHeroDesign 
     //fix: Stack too deep
     uint256 seed =seedVal;
     uint256 category = (detailsVal >> 30) & 31;
+    // Bit 35 must be set on every mint.
     bool isHeroS = ((detailsVal >> 35) & 1) == 1;
     uint256 skin = (detailsVal >> 195) & ((uint256(1) << 10) - 1);
 
     bool isFusion = category == 3;
-    bool isSuperBox = category == 1;
 
     if (isHeroS) {
       // Exclusive abilities for hero S.
@@ -418,7 +436,7 @@ contract BHeroDesign is AccessControlUpgradeable, UUPSUpgradeable, IBHeroDesign 
       //random normal Hero and Super Hero
       (seed, details.rarity) = Utils.weightedRandom(
         seed,
-        isSuperBox ? superBoxDropRate : dropRateOption.length > 0 ? dropRateOption : dropRate
+        dropRateOption.length > 0 ? dropRateOption : dropRate
       );
     } else {
       // Specified rarity.
@@ -453,8 +471,7 @@ contract BHeroDesign is AccessControlUpgradeable, UUPSUpgradeable, IBHeroDesign 
       //except all event skill
       uint256 indexArr;
       uint256 lengthArr = skinArr.length - 1;
-      uint256 seedSkin = seed;
-      (seed, indexArr) = Utils.randomRangeInclusive(seedSkin, 0, lengthArr);
+      (seed, indexArr) = Utils.randomRangeInclusive(seed, 0, lengthArr);
       details.skin = skinArr[indexArr];
     } else {
       details.skin = skin; // Start from one.

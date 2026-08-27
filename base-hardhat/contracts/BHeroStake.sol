@@ -5,7 +5,9 @@ import "@openzeppelin/contracts-upgradeable/access/AccessControlUpgradeable.sol"
 import "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/utils/math/MathUpgradeable.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts-upgradeable/token/ERC721/ERC721Upgradeable.sol";
+import "./ITreasurySplitter.sol";
 
 // 1st level: stake coin to get shield for BHero: L -> S
 // 2nd level: stake minimum coin to be qualified for TH 1.1
@@ -17,6 +19,7 @@ import "@openzeppelin/contracts-upgradeable/token/ERC721/ERC721Upgradeable.sol";
 //     + Apply weighted average for the stake time of previous stake and current stake
 
 contract BHeroStake is Initializable, AccessControlUpgradeable, UUPSUpgradeable {
+  using SafeERC20 for IERC20;
 
   bytes32 public constant UPGRADER_ROLE = keccak256("UPGRADER_ROLE");
   bytes32 public constant DESIGNER_ROLE = keccak256("DESIGNER_ROLE");
@@ -42,6 +45,11 @@ contract BHeroStake is Initializable, AccessControlUpgradeable, UUPSUpgradeable 
 
   mapping(address => mapping(uint256 => Staker)) public heroStakeV2;
   mapping(address => uint256) public withdrawFeeAmountsV2;
+
+  address public treasurySplitter;
+
+  // Storage ends here. New state variables are appended below this line only; nothing
+  // above may be reordered, retyped or removed.
 
   event BalanceChanged(address token, uint256 id, uint256 amount);
 
@@ -256,5 +264,46 @@ contract BHeroStake is Initializable, AccessControlUpgradeable, UUPSUpgradeable 
 
   function dummyDeploy() public view returns (uint256) {
      return 0;
+  }
+
+  // --- treasury distribution ---
+  event TreasurySplitterChanged(address splitter);
+
+  function setTreasurySplitter(address value) external onlyRole(DEFAULT_ADMIN_ROLE) {
+    require(value != address(0), "Zero address");
+    treasurySplitter = value;
+    emit TreasurySplitterChanged(value);
+  }
+
+  // The amount leaving is bounded by the unstake-fee ledger and subtracted from it in the
+  // same transaction.
+  function withdrawToTreasury(
+    address token,
+    uint256 amount,
+    address router,
+    bytes calldata swapCalldata,
+    uint256 minUsdtOut
+  ) external onlyRole(WITHDRAWER_ROLE) returns (uint256 usdtOut) {
+    address splitter = treasurySplitter;
+    require(splitter != address(0), "Splitter not set");
+    require(amount > 0, "Amount > 0");
+    require(amount <= withdrawFeeAmountsV2[token], "Exceeds fee");
+
+    uint256 tokenBefore = IERC20(token).balanceOf(address(this));
+    withdrawFeeAmountsV2[token] -= amount;
+
+    IERC20(token).forceApprove(splitter, amount);
+    usdtOut = ITreasurySplitter(splitter).distribute(token, amount, router, swapCalldata, minUsdtOut);
+    IERC20(token).forceApprove(splitter, 0);
+
+    // Return the unspent remainder to the ledger.
+    uint256 spent = tokenBefore - IERC20(token).balanceOf(address(this));
+    if (amount > spent) {
+      withdrawFeeAmountsV2[token] += amount - spent;
+    }
+
+    if (usdtOut > 0) {
+      withdrawFeeAmountsV2[ITreasurySplitter(splitter).usdtToken()] += usdtOut;
+    }
   }
 }

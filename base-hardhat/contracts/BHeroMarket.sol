@@ -4,6 +4,8 @@ pragma solidity ^0.8.20;
 import "@openzeppelin/contracts-upgradeable/access/AccessControlUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/security/PausableUpgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/token/ERC20/IERC20Upgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/token/ERC20/utils/SafeERC20Upgradeable.sol";
 import "./BHeroDetails.sol";
 import "./MarketCore.sol";
 
@@ -15,6 +17,7 @@ contract BHeroMarket is
     UUPSUpgradeable
 {
     using BHeroDetails for BHeroDetails.Details;
+    using SafeERC20Upgradeable for IERC20Upgradeable;
 
     bytes32 public constant PAUSER_ROLE = keccak256("PAUSER_ROLE");
     bytes32 public constant WITHDRAWER_ROLE = keccak256("WITHDRAWER_ROLE");
@@ -26,6 +29,15 @@ contract BHeroMarket is
     // Upgrade to use multi-coin for payment
     mapping(uint256 => address) tokenPay;
     mapping(address => bool) public tokenWhitelist;
+
+    // --- fee swap to USDT ---
+    mapping(address => bool) public swapRouterAllowed;
+    address public usdtToken;
+    bool private _swapping;
+
+    event SwapRouterChanged(address indexed router, bool allowed);
+    event UsdtTokenChanged(address usdt);
+    event FeesSwapped(address indexed tokenIn, uint256 amountIn, uint256 usdtOut, address indexed router);
 
     function initialize(address bcoinCA_, address nftCA_) public initializer {
         __AccessControl_init();
@@ -42,7 +54,6 @@ contract BHeroMarket is
 
         bcoinContract = IERC20(bcoinCA_);
         nftContract = IERC721(nftCA_);
-        // TODO: require nftCA_ supports 721 interface???
 
         // default configuration
         taxRate = 500;
@@ -80,6 +91,60 @@ contract BHeroMarket is
             msg.sender,
             IERC20(tokenAddress).balanceOf(address(this))
         );
+    }
+
+    // --- fee swap to USDT ---
+
+    modifier nonReentrantSwap() {
+        require(!_swapping, "Reentrant");
+        _swapping = true;
+        _;
+        _swapping = false;
+    }
+
+    function setSwapRouter(address router, bool allowed) external onlyRole(WITHDRAWER_ROLE) {
+        require(router != address(0), "Zero address");
+        swapRouterAllowed[router] = allowed;
+        emit SwapRouterChanged(router, allowed);
+    }
+
+    function setUsdtToken(address usdt) external onlyRole(WITHDRAWER_ROLE) {
+        require(usdt != address(0), "Zero address");
+        usdtToken = usdt;
+        emit UsdtTokenChanged(usdt);
+    }
+
+    // Converts accrued marketplace tax into USDT via a whitelisted router. Approval is scoped to
+    // amountIn and reset after; balance deltas enforce spent <= amountIn and usdtOut >= minUsdtOut.
+    function swapToUSDT(
+        address tokenIn,
+        uint256 amountIn,
+        address router,
+        bytes calldata swapCalldata,
+        uint256 minUsdtOut
+    ) external onlyRole(WITHDRAWER_ROLE) nonReentrantSwap {
+        address usdt = usdtToken;
+        require(usdt != address(0), "USDT not set");
+        require(tokenIn != usdt, "tokenIn is USDT");
+        require(swapRouterAllowed[router], "Router not allowed");
+        require(amountIn > 0, "amountIn=0");
+
+        uint256 inBefore = IERC20Upgradeable(tokenIn).balanceOf(address(this));
+        require(amountIn <= inBefore, "Exceeds balance");
+        uint256 usdtBefore = IERC20Upgradeable(usdt).balanceOf(address(this));
+
+        IERC20Upgradeable(tokenIn).forceApprove(router, amountIn);
+        (bool ok, ) = router.call(swapCalldata);
+        require(ok, "Swap failed");
+        IERC20Upgradeable(tokenIn).forceApprove(router, 0);
+
+        uint256 spent = inBefore - IERC20Upgradeable(tokenIn).balanceOf(address(this));
+        require(spent <= amountIn, "Overspent");
+
+        uint256 usdtOut = IERC20Upgradeable(usdt).balanceOf(address(this)) - usdtBefore;
+        require(usdtOut >= minUsdtOut, "Insufficient USDT out");
+
+        emit FeesSwapped(tokenIn, spent, usdtOut, router);
     }
 
     function changeSettings(uint256 taxRate_, uint256 cooldownBeforeCancel_)

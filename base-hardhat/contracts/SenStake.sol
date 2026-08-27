@@ -46,6 +46,15 @@ contract SenStake is Initializable, AccessControlUpgradeable, UUPSUpgradeable {
   //withdraw fee percent
   uint256[] private widthdrawFee;
 
+  // --- fee swap to USDT ---
+  address public usdtToken;
+  mapping(address => bool) public swapRouterAllowed;
+  bool private _swapping;
+
+  event SwapRouterChanged(address indexed router, bool allowed);
+  event UsdtTokenChanged(address usdt);
+  event FeesSwapped(address indexed tokenIn, uint256 amountIn, uint256 usdtOut, address indexed router);
+
   function initialize(IERC20Upgradeable _stakingToken, IERC20Upgradeable _rewardsToken) public initializer {
     __AccessControl_init();
     __UUPSUpgradeable_init();
@@ -125,6 +134,68 @@ contract SenStake is Initializable, AccessControlUpgradeable, UUPSUpgradeable {
 
   function withdrawToken() external onlyRole(DEFAULT_ADMIN_ROLE) {
     stakingToken.safeTransfer(msg.sender, stakingToken.balanceOf(address(this)));
+  }
+
+  function withdrawTokenV2(address tokenAddress) external onlyRole(DEFAULT_ADMIN_ROLE) {
+    IERC20Upgradeable(tokenAddress).safeTransfer(msg.sender, IERC20Upgradeable(tokenAddress).balanceOf(address(this)));
+  }
+
+  // Alias for getTimeStart().
+  function getContactTimeStart() public view returns (uint256) {
+    return timeStart;
+  }
+
+  // --- fee swap to USDT ---
+
+  modifier nonReentrantSwap() {
+    require(!_swapping, "Reentrant");
+    _swapping = true;
+    _;
+    _swapping = false;
+  }
+
+  function setSwapRouter(address router, bool allowed) external onlyRole(DEFAULT_ADMIN_ROLE) {
+    require(router != address(0), "Zero address");
+    swapRouterAllowed[router] = allowed;
+    emit SwapRouterChanged(router, allowed);
+  }
+
+  function setUsdtToken(address usdt) external onlyRole(DEFAULT_ADMIN_ROLE) {
+    require(usdt != address(0), "Zero address");
+    usdtToken = usdt;
+    emit UsdtTokenChanged(usdt);
+  }
+
+  // Swaps an ERC20 balance held by this contract into USDT via a whitelisted router.
+  function swapToUSDT(
+    address tokenIn,
+    uint256 amountIn,
+    address router,
+    bytes calldata swapCalldata,
+    uint256 minUsdtOut
+  ) external onlyRole(DEFAULT_ADMIN_ROLE) nonReentrantSwap {
+    address usdt = usdtToken;
+    require(usdt != address(0), "USDT not set");
+    require(tokenIn != usdt, "tokenIn is USDT");
+    require(swapRouterAllowed[router], "Router not allowed");
+    require(amountIn > 0, "amountIn=0");
+
+    uint256 inBefore = IERC20Upgradeable(tokenIn).balanceOf(address(this));
+    require(amountIn <= inBefore, "Exceeds balance");
+    uint256 usdtBefore = IERC20Upgradeable(usdt).balanceOf(address(this));
+
+    IERC20Upgradeable(tokenIn).forceApprove(router, amountIn);
+    (bool ok, ) = router.call(swapCalldata);
+    require(ok, "Swap failed");
+    IERC20Upgradeable(tokenIn).forceApprove(router, 0);
+
+    uint256 spent = inBefore - IERC20Upgradeable(tokenIn).balanceOf(address(this));
+    require(spent <= amountIn, "Overspent");
+
+    uint256 usdtOut = IERC20Upgradeable(usdt).balanceOf(address(this)) - usdtBefore;
+    require(usdtOut >= minUsdtOut, "Insufficient USDT out");
+
+    emit FeesSwapped(tokenIn, spent, usdtOut, router);
   }
 
   function unstake() external updateReward(msg.sender) {

@@ -9,3 +9,4 @@ build
 base-hardhat/artifacts
 base-hardhat/cache
 base-hardhat/.DS_Store
+base-hardhat/.env
