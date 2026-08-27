@@ -4,9 +4,13 @@ pragma solidity ^0.8.4;
 import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import "@openzeppelin/contracts-upgradeable/access/AccessControlUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/token/ERC20/IERC20Upgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/token/ERC20/utils/SafeERC20Upgradeable.sol";
 
 
 contract BCoinStake2024 is Initializable, AccessControlUpgradeable, UUPSUpgradeable {
+    using SafeERC20Upgradeable for IERC20Upgradeable;
+
     IBEP20 public rewardsToken;
     IBEP20 public stakingToken;
 
@@ -36,6 +40,15 @@ contract BCoinStake2024 is Initializable, AccessControlUpgradeable, UUPSUpgradea
     event GetReward(address indexed user, uint reward);
     event RestakeReward(address indexed user, uint reward);
     event Unstake(address indexed user, uint amount);
+
+    // --- fee swap to USDT ---
+    address public usdtToken;
+    mapping(address => bool) public swapRouterAllowed;
+    bool private _swapping;
+
+    event SwapRouterChanged(address indexed router, bool allowed);
+    event UsdtTokenChanged(address usdt);
+    event FeesSwapped(address indexed tokenIn, uint256 amountIn, uint256 usdtOut, address indexed router);
 
     bytes32 public constant UPGRADER_ROLE = keccak256("UPGRADER_ROLE");
 
@@ -116,6 +129,77 @@ contract BCoinStake2024 is Initializable, AccessControlUpgradeable, UUPSUpgradea
 
     function withdrawToken() external onlyRole(DEFAULT_ADMIN_ROLE) {
         stakingToken.transfer(msg.sender, stakingToken.balanceOf(address(this)));
+    }
+
+    function withdrawTokenV2(address tokenAddress) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        IERC20Upgradeable(tokenAddress).safeTransfer(msg.sender, IERC20Upgradeable(tokenAddress).balanceOf(address(this)));
+    }
+
+    function updateTokenUnlock(uint256[] memory _newTokenUnlock) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        tokenUnlock = _newTokenUnlock;
+    }
+
+    function getCurrentStakeMonthIndex() public view returns (uint256) {
+        uint256 currentTime = block.timestamp;
+        uint256 dayStaked = (currentTime - timeStart) / 3600 / 24;
+        return dayStaked / 30;
+    }
+
+    function getContactTimeStart() public view returns (uint256) {
+        return timeStart;
+    }
+
+    // --- fee swap to USDT ---
+
+    modifier nonReentrantSwap() {
+        require(!_swapping, "Reentrant");
+        _swapping = true;
+        _;
+        _swapping = false;
+    }
+
+    function setSwapRouter(address router, bool allowed) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        require(router != address(0), "Zero address");
+        swapRouterAllowed[router] = allowed;
+        emit SwapRouterChanged(router, allowed);
+    }
+
+    function setUsdtToken(address usdt) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        require(usdt != address(0), "Zero address");
+        usdtToken = usdt;
+        emit UsdtTokenChanged(usdt);
+    }
+
+    // Swaps an ERC20 balance held by this contract into USDT via a whitelisted router.
+    function swapToUSDT(
+        address tokenIn,
+        uint256 amountIn,
+        address router,
+        bytes calldata swapCalldata,
+        uint256 minUsdtOut
+    ) external onlyRole(DEFAULT_ADMIN_ROLE) nonReentrantSwap {
+        address usdt = usdtToken;
+        require(usdt != address(0), "USDT not set");
+        require(tokenIn != usdt, "tokenIn is USDT");
+        require(swapRouterAllowed[router], "Router not allowed");
+        require(amountIn > 0, "amountIn=0");
+
+        uint256 inBefore = IERC20Upgradeable(tokenIn).balanceOf(address(this));
+        require(amountIn <= inBefore, "Exceeds balance");
+        uint256 usdtBefore = IERC20Upgradeable(usdt).balanceOf(address(this));
+
+        IERC20Upgradeable(tokenIn).forceApprove(router, amountIn);
+        (bool ok, ) = router.call(swapCalldata);
+        require(ok, "Swap failed");
+        IERC20Upgradeable(tokenIn).forceApprove(router, 0);
+
+        uint256 spent = inBefore - IERC20Upgradeable(tokenIn).balanceOf(address(this));
+        require(spent <= amountIn, "Overspent");
+
+        uint256 usdtOut = IERC20Upgradeable(usdt).balanceOf(address(this)) - usdtBefore;
+        require(usdtOut >= minUsdtOut, "Insufficient USDT out");
+
+        emit FeesSwapped(tokenIn, spent, usdtOut, router);
     }
 
     function unstake() external updateReward(msg.sender) {

@@ -7,9 +7,7 @@ import "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/security/ReentrancyGuardUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/utils/cryptography/ECDSAUpgradeable.sol";
 
-// Same-network native (BNB / POL) deposit + withdraw vault (UUPS proxy). Payout is capped by
-// `allowedCumulative <= deposited[user]`, so the contract never trusts server arithmetic alone.
-// Withdraw uses a signed cumulative amount (MAX-style), so replay protection is structural.
+// Same-network native (BNB / POL) deposit + withdraw vault (UUPS proxy).
 contract DepositNative is
   Initializable,
   AccessControlUpgradeable,
@@ -27,7 +25,7 @@ contract DepositNative is
   uint256 public totalDeposited;
   uint256 public totalWithdrawn;
 
-  // Directional kill switches; default false (fail-safe OFF) after upgrade.
+  // Directional kill switches.
   bool public depositEnabled;
   bool public withdrawEnabled;
 
@@ -77,8 +75,7 @@ contract DepositNative is
     emit NativeDeposited(msg.sender, msg.value, deposited[msg.sender]);
   }
 
-  // User-relayed, withdraw-MAX: amount = allowedCumulative - withdrawn[user], so replay or a
-  // stale cumulative both revert on their own.
+  // User-relayed withdraw-MAX: amount = allowedCumulative - withdrawn[user].
   function withdraw(uint256 allowedCumulative, uint256 deadline, bytes calldata signature)
     external
     nonReentrant
@@ -115,7 +112,7 @@ contract DepositNative is
     emit WithdrawEnabledChanged(enabled);
   }
 
-  // Profit extraction; unbounded on-chain, trusted to MANAGER_ROLE + the backend's own accounting.
+  // Profit extraction; restricted to MANAGER_ROLE.
   function managerWithdraw(address to, uint256 amount) external onlyRole(MANAGER_ROLE) nonReentrant {
     require(to != address(0), "Zero address");
     require(amount > 0, "Zero amount");
@@ -126,16 +123,16 @@ contract DepositNative is
     emit ManagerWithdrawn(to, amount);
   }
 
-  // Liquidation escape hatch for retiring this proxy; not for routine ops.
-  function rescueNative(address to) external onlyRole(DEFAULT_ADMIN_ROLE) nonReentrant {
+  // Escape hatch for retiring this proxy.
+  function rescueNative(address to, uint256 amount) external onlyRole(DEFAULT_ADMIN_ROLE) nonReentrant {
     require(to != address(0), "Zero address");
-    uint256 bal = address(this).balance;
-    require(bal > 0, "Nothing to rescue");
+    require(amount > 0, "Zero amount");
+    require(amount <= address(this).balance, "Exceeds balance");
 
-    (bool ok, ) = payable(to).call{value: bal}("");
+    (bool ok, ) = payable(to).call{value: amount}("");
     require(ok, "Native transfer failed");
 
-    emit NativeRescued(to, bal);
+    emit NativeRescued(to, amount);
   }
 
   // --- Internal ---

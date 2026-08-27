@@ -8,7 +8,8 @@ interface IBHeroDesign {
 
   function getSenMintCost() external view returns (uint256);
 
-  function getSuperBoxMintCost() external view returns (uint256);
+  // Deprecated.
+  // function getSuperBoxMintCost() external view returns (uint256);
 
   function getMaxLevel() external view returns (uint256);
 
@@ -24,7 +25,8 @@ interface IBHeroDesign {
 
   function getSenMintCostHeroS() external view returns (uint256);
 
-  function getRockUpgradeShieldLevel(uint256 rarity, uint256 level) external view returns (uint256);
+  // Deprecated.
+  // function getRockUpgradeShieldLevel(uint256 rarity, uint256 level) external view returns (uint256);
 
   function randomizeAbilities(uint256 seed, uint256 details)
     external
@@ -32,4 +34,12 @@ interface IBHeroDesign {
     returns (uint256 nextSeed, uint256 encodedDetails);
 
   function createTokens(uint256 tokenId, uint256 count, uint256 details) external view returns (uint256[] memory tokenDetails);
+
+  // `salt` domain-separates one caller's batch from another's.
+  function createTokens(
+    uint256 tokenId,
+    uint256 count,
+    uint256 details,
+    uint256 salt
+  ) external view returns (uint256[] memory tokenDetails);
 }

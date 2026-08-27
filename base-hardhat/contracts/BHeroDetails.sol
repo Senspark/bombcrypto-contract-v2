@@ -87,7 +87,6 @@ library BHeroDetails {
     value |= details.numResetShield << 240;
 
     // highBitSkin lives at bit 250 (5 bits, range 250-254). Bit 255 reserved.
-    // Original 1024-skin design wrote at bit 245 which collided with numResetShield (240-249).
     value |= highBitSkin << 250;
 
     return value;
@@ -219,6 +218,8 @@ library BHeroDetails {
     return details;
   }
 
+  // Reads the decoded isHeroS flag: a BHeroS carries an entry in the abilityHeroS array at
+  // bits 180+. The request-side flag is bit 35 of the request `details`.
   function isHeroS(uint256 details) internal pure returns (bool) {
     uint256 length = (details >> 180) & 31;
     return length > 0;

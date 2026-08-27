@@ -5,19 +5,23 @@ import "@openzeppelin/contracts-upgradeable/token/ERC721/ERC721Upgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import "@openzeppelin/contracts-upgradeable/access/AccessControlUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
+import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
 import "./BHeroToken.sol";
 import "./BHeroDetails.sol";
 import "./signatureV1Lib.sol";
-
-//maybe: reset shield term in contract that is repair shield term in game/community
+import "./ITreasurySplitter.sol";
 
 contract BHeroS is Initializable, AccessControlUpgradeable, UUPSUpgradeable {
   using BHeroDetails for BHeroDetails.Details;
+  using SafeERC20 for IERC20;
 
   // Legacy, use random request.
   event TokenCreateRequested(address to, uint256 block);
   event CreateRock(address indexed owner, uint256 numRock, uint256[] listIdHero);
+  // Emitted alongside CreateRock, same order. Hero id is bits 0-29 of each details value, so this
+  // carries the ids too.
+  event CreateRockDetails(address indexed owner, uint256[] listDetails);
   event BurnResetShield(address indexed owner, uint256 idHeroS, uint256[] listIdHero);
   event ResetShieldHeroS(address indexed owner, uint256 idHeroS, uint256 numRock);
   event UpgradeShieldLevel(address indexed owner, uint256 idHeroS, uint256 oldLevel, uint256 newLevel);
@@ -37,11 +41,9 @@ contract BHeroS is Initializable, AccessControlUpgradeable, UUPSUpgradeable {
   BHeroToken public bHeroToken;
 
   uint256 maxBurn;
-  //create rock from Hero type
-  // Widened from uint8[6] → uint8[10] for rarities 0-9. Same single slot, first 6 bytes preserve V1 data.
-  // Upgrade requires { unsafeSkipStorageCheck: true } in upgradeProxy; verify byte-compat in fork rehearsal.
+  // Reserved slot; kept for storage layout.
   uint8[10] numRockCreate;
-  //number rock need to reset shield
+  // Reserved slot; kept for storage layout.
   uint8[10] numRockResetShield;
 
   //User info
@@ -52,6 +54,7 @@ contract BHeroS is Initializable, AccessControlUpgradeable, UUPSUpgradeable {
     uint256[] priceRock;
   }
 
+  // Reserved slot; kept for storage layout.
   mapping(address => UserInfo) userInfos;
 
   IERC20 public bcoinToken;
@@ -66,6 +69,21 @@ contract BHeroS is Initializable, AccessControlUpgradeable, UUPSUpgradeable {
   */
 
   mapping(address => mapping(uint256 => bool)) public usedNonces;
+
+  // Reserved slots; kept for storage layout.
+  address usdtToken;
+  mapping(address => bool) swapRouterAllowed;
+  bool private _swapping;
+
+  address public treasurySplitter;
+
+  // Storage ends here. New state variables are appended below this line only; nothing
+  // above may be reordered, retyped or removed.
+
+  // Retained for ABI compatibility.
+  event SwapRouterChanged(address indexed router, bool allowed);
+  event UsdtTokenChanged(address usdt);
+  event FeesSwapped(address indexed tokenIn, uint256 amountIn, uint256 usdtOut, address indexed router);
 
   function initialize(BHeroToken bHeroTokenVal) public initializer {
     __AccessControl_init();
@@ -92,11 +110,13 @@ contract BHeroS is Initializable, AccessControlUpgradeable, UUPSUpgradeable {
     _;
   }
 
+  /*
   modifier checkNumRock(address owner, uint256 numRock) {
     require(numRock > 0, "Rock < 1");
     require(userInfos[owner].totalRock >= numRock, "Not enough rocks");
     _;
   }
+  */
 
   modifier canFusion(uint256[] calldata mainMaterials, uint256[] calldata buffMaterials) {
     uint256 countMain = mainMaterials.length;
@@ -107,6 +127,7 @@ contract BHeroS is Initializable, AccessControlUpgradeable, UUPSUpgradeable {
     _;
   }
 
+  /*
   modifier checkBurnResetShield(uint256 idHeroS, uint256[] calldata listIdHero) {
     uint256 detailHeroS = getTokenDetailByID(idHeroS);
 
@@ -122,28 +143,30 @@ contract BHeroS is Initializable, AccessControlUpgradeable, UUPSUpgradeable {
 
     _;
   }
+  */
 
+  /*
   function checkNumHeroBurn(uint256 detailHeroS, uint256[] memory listIdHero) public pure returns (bool) {
     uint256 rarityHeroS = BHeroDetails.decodeRarity(detailHeroS);
 
-    // PLACEHOLDER values for rarities 6-9 — review before mainnet
     uint8[10] memory numHero = [1, 1, 2, 3, 4, 5, 6, 7, 8, 9];
     return listIdHero.length == numHero[rarityHeroS];
   }
+  */
 
+  /*
   function isCommonHero(uint256 detail) public pure returns (bool) {
     uint256 rarity = BHeroDetails.decodeRarity(detail);
     return rarity == 0;
   }
+  */
 
-  //Get num rock when burn hero type
-  function getNumRock(uint256[] memory listIdHero) internal view returns (uint256) {
-    uint256 totalRock;
+  // Details of every burned hero, kept so they can be emitted.
+  function getBurnDetails(uint256[] memory listIdHero) internal view returns (uint256[] memory listDetails) {
+    listDetails = new uint256[](listIdHero.length);
     for (uint256 i = 0; i < listIdHero.length; ++i) {
-      uint256 rarity = BHeroDetails.decodeRarity(getTokenDetailByID(listIdHero[i]));
-      totalRock += numRockCreate[rarity];
+      listDetails[i] = getTokenDetailByID(listIdHero[i]);
     }
-    return totalRock;
   }
 
   // Estimation fee gas modifier with internal function
@@ -164,25 +187,23 @@ contract BHeroS is Initializable, AccessControlUpgradeable, UUPSUpgradeable {
     maxBurn = maxBurnVal;
   }
 
-  /**
-   * polygon: [5,10,20,35,55,80,...] (extend with placeholder for rarities 6-9 before mainnet)
-   * BSC: [1,2,3,4,5,6,7,8,9,10]
-   */
+  /*
   function setNumRockCreate(uint8[10] memory value) external onlyRole(DESIGNER_ROLE) {
     numRockCreate = value;
   }
+  */
 
-  /**
-   * polygon: [1,2,4,6,8,10,...] (extend with placeholder for rarities 6-9 before mainnet)
-   * BSC: [1,1,2,3,4,5,6,7,8,9]
-   */
+  /*
   function setNumRockResetShield(uint8[10] memory value) external onlyRole(DESIGNER_ROLE) {
     numRockResetShield = value;
   }
+  */
 
+  /*
   function addRockByAdmin(address user, uint value) external onlyRole(DESIGNER_ROLE) {
     userInfos[user].totalRock += value;
   }
+  */
 
   // @title  Burn list Here
   function burnListToken(uint256[] calldata listToken) external isMaxBurn(listToken) isOwner(listToken) {
@@ -298,20 +319,19 @@ contract BHeroS is Initializable, AccessControlUpgradeable, UUPSUpgradeable {
   }
 
   /**
-   * Burn hero and create Rock
+   * Burn hero and create Rock. Rock itself lives in the game database, not on chain: the amount
+   * is derived off-chain from the burned heroes' details, which CreateRockDetails carries.
    */
   function createRock(uint256[] calldata listIdHero) external isOwner(listIdHero) {
-    uint256 numRock = getNumRock(listIdHero);
-
-    //add data
+    uint256[] memory listDetails = getBurnDetails(listIdHero);
     address owner = msg.sender;
-    userInfos[owner].totalRock += numRock;
 
     //@notice burn listoken
     bHeroToken.burn(listIdHero);
 
     //event
-    emit CreateRock(owner, numRock, listIdHero);
+    emit CreateRock(owner, 0, listIdHero);
+    emit CreateRockDetails(owner, listDetails);
   }
 
   function _getHeroInfo(address owner, uint256 idHeroS) internal view returns (uint256, uint256, uint256) {
@@ -326,6 +346,7 @@ contract BHeroS is Initializable, AccessControlUpgradeable, UUPSUpgradeable {
     return (rarity, level, detailHeroS);
   }
 
+  /*
   //User need number Rock for reset shield HeroS
   function resetShieldHeroS(uint256 idHeroS, uint256 numRock) external checkNumRock(msg.sender, numRock) {
     address owner = msg.sender;
@@ -343,6 +364,7 @@ contract BHeroS is Initializable, AccessControlUpgradeable, UUPSUpgradeable {
 
     emit ResetShieldHeroS(owner, idHeroS, numRock);
   }
+  */
 
   //Upgrade shield level with num rocks needed
   /*function upgradeShieldLevel(uint256 idHeroS, uint256 numRock) external checkNumRock(msg.sender, numRock) {
@@ -421,13 +443,14 @@ contract BHeroS is Initializable, AccessControlUpgradeable, UUPSUpgradeable {
     return hasRole(DESIGNER_ROLE, signer);
   }
 
+  /*
   function getTotalRockByUser(address user) public view returns (uint256) {
     return userInfos[user].totalRock;
   }
+  */
 
-  /**
-   * Burn hero and reset shield for HeroS
-   */
+  /*
+  // Burn hero and reset shield for HeroS
   function burnResetShield(
     uint256 idHeroS,
     uint256[] calldata listIdHero
@@ -446,6 +469,7 @@ contract BHeroS is Initializable, AccessControlUpgradeable, UUPSUpgradeable {
     //event
     emit BurnResetShield(owner, idHeroS, listIdHero);
   }
+  */
 
   /**
    * @dev burn hero and fusion new hero
@@ -565,6 +589,64 @@ contract BHeroS is Initializable, AccessControlUpgradeable, UUPSUpgradeable {
     IERC20(value).transfer(msg.sender, IERC20(value).balanceOf(address(this)));
   }
 
+  // --- fee swap to USDT ---
+  // Superseded by withdrawToTreasury below, which routes the same balances through the splitter.
+  // Commented out rather than deleted: the storage slots above must stay declared for UUPS, and
+  // re-enabling is just removing the /* */.
+
+  /*
+  modifier nonReentrantSwap() {
+    require(!_swapping, "Reentrant");
+    _swapping = true;
+    _;
+    _swapping = false;
+  }
+
+  function setSwapRouter(address router, bool allowed) external onlyRole(WITHDRAWER_ROLE) {
+    require(router != address(0), "Zero address");
+    swapRouterAllowed[router] = allowed;
+    emit SwapRouterChanged(router, allowed);
+  }
+
+  function setUsdtToken(address usdt) external onlyRole(WITHDRAWER_ROLE) {
+    require(usdt != address(0), "Zero address");
+    usdtToken = usdt;
+    emit UsdtTokenChanged(usdt);
+  }
+
+  // Swaps an ERC20 balance held by this contract into USDT via a whitelisted router.
+  function swapToUSDT(
+    address tokenIn,
+    uint256 amountIn,
+    address router,
+    bytes calldata swapCalldata,
+    uint256 minUsdtOut
+  ) external onlyRole(WITHDRAWER_ROLE) nonReentrantSwap {
+    address usdt = usdtToken;
+    require(usdt != address(0), "USDT not set");
+    require(tokenIn != usdt, "tokenIn is USDT");
+    require(swapRouterAllowed[router], "Router not allowed");
+    require(amountIn > 0, "amountIn=0");
+
+    uint256 inBefore = IERC20(tokenIn).balanceOf(address(this));
+    require(amountIn <= inBefore, "Exceeds balance");
+    uint256 usdtBefore = IERC20(usdt).balanceOf(address(this));
+
+    IERC20(tokenIn).forceApprove(router, amountIn);
+    (bool ok, ) = router.call(swapCalldata);
+    require(ok, "Swap failed");
+    IERC20(tokenIn).forceApprove(router, 0);
+
+    uint256 spent = inBefore - IERC20(tokenIn).balanceOf(address(this));
+    require(spent <= amountIn, "Overspent");
+
+    uint256 usdtOut = IERC20(usdt).balanceOf(address(this)) - usdtBefore;
+    require(usdtOut >= minUsdtOut, "Insufficient USDT out");
+
+    emit FeesSwapped(tokenIn, spent, usdtOut, router);
+  }
+  */
+
   /*
   // Set the price of a specific packId
   function setBcoinRockPackPrice(uint256[] memory packPrices) external onlyRole(DESIGNER_ROLE) {
@@ -603,7 +685,31 @@ contract BHeroS is Initializable, AccessControlUpgradeable, UUPSUpgradeable {
     userInfos[msg.sender].totalRock += numRockPacks[packId];
   }*/
 
-  function dummyDeploy5() public view returns (uint256) {
-    return 0;
+  // --- treasury distribution ---
+  event TreasurySplitterChanged(address splitter);
+
+  function setTreasurySplitter(address value) external onlyRole(DEFAULT_ADMIN_ROLE) {
+    require(value != address(0), "Zero address");
+    treasurySplitter = value;
+    emit TreasurySplitterChanged(value);
+  }
+
+  // Ratios, treasury addresses and the router whitelist live in the splitter; this contract only
+  // lends it an allowance for the duration of the call. The dev share comes back here as USDT.
+  function withdrawToTreasury(
+    address token,
+    uint256 amount,
+    address router,
+    bytes calldata swapCalldata,
+    uint256 minUsdtOut
+  ) external onlyRole(WITHDRAWER_ROLE) returns (uint256 usdtOut) {
+    address splitter = treasurySplitter;
+    require(splitter != address(0), "Splitter not set");
+    require(amount > 0, "amount=0");
+    require(amount <= IERC20(token).balanceOf(address(this)), "Exceeds balance");
+
+    IERC20(token).forceApprove(splitter, amount);
+    usdtOut = ITreasurySplitter(splitter).distribute(token, amount, router, swapCalldata, minUsdtOut);
+    IERC20(token).forceApprove(splitter, 0);
   }
 }
