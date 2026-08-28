@@ -157,10 +157,49 @@ library BHeroDetails {
     return (details >> 175) & 31;
   }
 
+  /**
+   * @dev Increments Speed, Bomb Count, Stamina and Range by 1.
+   * Attributes are capped at 31 due to 5-bit storage limit.
+   */
+  function evolveAttributes(uint256 details) internal pure returns (uint256) {
+    uint256 stamina = (details >> 60) & 31;
+    uint256 speed = (details >> 65) & 31;
+    uint256 bombCount = (details >> 75) & 31;
+    uint256 bombRange = (details >> 85) & 31;
+
+    if (stamina < 31) {
+      details &= ~(uint256(31) << 60);
+      details |= (stamina + 1) << 60;
+    }
+    if (speed < 31) {
+      details &= ~(uint256(31) << 65);
+      details |= (speed + 1) << 65;
+    }
+    if (bombCount < 31) {
+      details &= ~(uint256(31) << 75);
+      details |= (bombCount + 1) << 75;
+    }
+    if (bombRange < 31) {
+      details &= ~(uint256(31) << 85);
+      details |= (bombRange + 1) << 85;
+    }
+
+    return details;
+  }
+
   function increaseLevel(uint256 details) internal pure returns (uint256) {
     uint256 level = decodeLevel(details);
+    require(level < 10, "MAX LEVEL REACHED");
+
+    // Increment level
     details &= ~(uint256(31) << 45);
     details |= (level + 1) << 45;
+
+    // Attribute evolution starts at Level 6
+    if (level + 1 >= 6) {
+      details = evolveAttributes(details);
+    }
+
     return details;
   }
 
