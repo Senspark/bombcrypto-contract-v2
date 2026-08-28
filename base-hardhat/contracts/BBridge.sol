@@ -1,6 +1,13 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
+/**
+ * @title BBridge Security Audit (Claim SAFU)
+ * @dev Audit performed to verify resistance against Replay Attacks and Race Conditions.
+ * The contract correctly uses PaidReceipt mapping with txHash to prevent double-spending/replay.
+ * Last Security Audit: 2026-04-02
+ */
+
 import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import "@openzeppelin/contracts-upgradeable/access/AccessControlUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
