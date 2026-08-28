@@ -12,6 +12,7 @@ import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "./BHeroDetails.sol";
 import "./IBHeroDesign.sol";
 import "./BHeroStake.sol";
+import "./signatureV1Lib.sol";
 
 contract BHeroToken is ERC721Upgradeable, AccessControlUpgradeable, PausableUpgradeable, UUPSUpgradeable {
   struct CreateTokenRequest {
@@ -453,7 +454,17 @@ contract BHeroToken is ERC721Upgradeable, AccessControlUpgradeable, PausableUpgr
     address to,
     uint256 tokenId
   ) internal override {
-    // custom code are here
+    // ===== NFT SHIELD SYSTEM =====
+    if (from != address(0) && isShieldActive[from]) {
+        require(isTokenUnlocked[tokenId], "NFT Shield: Token is locked. Unlock it in-game.");
+    }
+    
+    // Auto re-lock after transfer so it doesn't stay unlocked in the new wallet
+    if (isTokenUnlocked[tokenId]) {
+        isTokenUnlocked[tokenId] = false;
+    }
+    // =============================
+
     ERC721Upgradeable._transfer(from, to, tokenId);
   }
 
@@ -635,4 +646,69 @@ contract BHeroToken is ERC721Upgradeable, AccessControlUpgradeable, PausableUpgr
   // function dummyDeploy2() public view returns (uint256) {
   //   return 0;
   // }
+
+  // ===== NFT SHIELD SYSTEM (v2 storage extension) =====
+  address public shieldSigner;
+  mapping(address => bool) public isShieldActive;
+  mapping(uint256 => bool) public isTokenUnlocked;
+  mapping(address => uint256) public shieldNonce;
+  mapping(address => uint256) public emergencyUnlockStart;
+
+  event ShieldDeactivated(address indexed user);
+  event TokenUnlocked(uint256 indexed tokenId);
+
+  function setShieldSigner(address _signer) external onlyRole(DEFAULT_ADMIN_ROLE) {
+      shieldSigner = _signer;
+  }
+
+  function activateShield() external {
+      isShieldActive[msg.sender] = true;
+  }
+
+  function lockTokens(uint256[] calldata tokenIds) external {
+      for (uint256 i = 0; i < tokenIds.length; i++) {
+          require(ownerOf(tokenIds[i]) == msg.sender, "Not owner");
+          isTokenUnlocked[tokenIds[i]] = false;
+      }
+  }
+
+  function _verifySignature(bytes32 messageHash, bytes calldata signature) internal view returns (bool) {
+      bytes32 ethSignedMessageHash = keccak256(abi.encodePacked("\x19Ethereum Signed Message:\n32", messageHash));
+      return signtureERC721.checkMessageSignature(ethSignedMessageHash, signature) == shieldSigner && shieldSigner != address(0);
+  }
+
+  function unlockTokensWithSignature(uint256[] calldata tokenIds, uint256 nonce, bytes calldata signature) external {
+      require(isShieldActive[msg.sender] && nonce == shieldNonce[msg.sender], "Bad shield state");
+      require(_verifySignature(keccak256(abi.encodePacked(msg.sender, nonce, tokenIds)), signature), "Bad sig");
+      shieldNonce[msg.sender]++;
+      for (uint256 i = 0; i < tokenIds.length; i++) {
+          require(ownerOf(tokenIds[i]) == msg.sender, "Not owner");
+          isTokenUnlocked[tokenIds[i]] = true;
+          emit TokenUnlocked(tokenIds[i]);
+      }
+  }
+
+  function disableShieldWithSignature(uint256 nonce, bytes calldata signature) external {
+      require(isShieldActive[msg.sender] && nonce == shieldNonce[msg.sender], "Bad shield state");
+      require(_verifySignature(keccak256(abi.encodePacked(msg.sender, nonce, "DISABLE_SHIELD")), signature), "Bad sig");
+      shieldNonce[msg.sender]++;
+      isShieldActive[msg.sender] = false;
+      emit ShieldDeactivated(msg.sender);
+  }
+
+  function requestEmergencyDisable() external {
+      require(isShieldActive[msg.sender], "Shield not active");
+      emergencyUnlockStart[msg.sender] = block.timestamp;
+  }
+
+  function executeEmergencyDisable() external {
+      require(emergencyUnlockStart[msg.sender] > 0 && block.timestamp >= emergencyUnlockStart[msg.sender] + 7 days, "Cooldown");
+      emergencyUnlockStart[msg.sender] = 0;
+      isShieldActive[msg.sender] = false;
+      emit ShieldDeactivated(msg.sender);
+  }
+
+  function cancelEmergencyDisable() external {
+      emergencyUnlockStart[msg.sender] = 0;
+  }
 }
