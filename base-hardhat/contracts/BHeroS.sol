@@ -33,6 +33,9 @@ contract BHeroS is Initializable, AccessControlUpgradeable, UUPSUpgradeable {
     uint256 rarityMain,
     uint256 rarityTarget
   );
+  event UpgradeHero(address indexed owner, uint256 indexed id, uint256 materialId, uint256 newLevel, uint256 price);
+  event ResetSkill(address indexed owner, uint256 indexed id, uint256 times, uint256 price);
+  event ResetSkin(address indexed owner, uint256 indexed id, uint256 details, uint256 price);
 
   bytes32 public constant UPGRADER_ROLE = keccak256("UPGRADER_ROLE");
   bytes32 public constant DESIGNER_ROLE = keccak256("DESIGNER_ROLE");
@@ -711,5 +714,111 @@ contract BHeroS is Initializable, AccessControlUpgradeable, UUPSUpgradeable {
     IERC20(token).forceApprove(splitter, amount);
     usdtOut = ITreasurySplitter(splitter).distribute(token, amount, router, swapCalldata, minUsdtOut);
     IERC20(token).forceApprove(splitter, 0);
+  }
+
+  // --- native-priced hero actions ---
+  // No new storage: level, skin, abilities and the reroll counter all live inside the packed
+  // details word on BHeroToken, and prices live in BHeroDesign.
+  //
+  // msg.value must match the price exactly - no refund of excess. That keeps value flowing one way
+  // only, so none of these three needs a reentrancy guard, which this contract does not have.
+
+  // The only unpredictability available: Utils.randomSeed is a pure state transition, it adds no
+  // entropy of its own. details changes on every successful roll, so two calls on the same hero in
+  // the same block still diverge.
+  function _seed(uint256 id, uint256 details) internal view returns (uint256) {
+    return uint256(keccak256(abi.encode(block.prevrandao, msg.sender, id, details)));
+  }
+
+  function _burnOne(uint256 id) internal {
+    uint256[] memory ids = new uint256[](1);
+    ids[0] = id;
+    bHeroToken.burn(ids);
+  }
+
+  /**
+   * Raises baseId one level, burning a material hero of the same level.
+   */
+  function upgradeHero(uint256 baseId, uint256 materialId) external payable {
+    require(baseId != materialId, "Same token");
+
+    address owner = msg.sender;
+    require(bHeroToken.ownerOf(baseId) == owner, "Not owner");
+    require(bHeroToken.ownerOf(materialId) == owner, "Not owner");
+
+    uint256 baseDetails = getTokenDetailByID(baseId);
+    uint256 baseLevel = BHeroDetails.decodeLevel(baseDetails);
+    require(baseLevel == BHeroDetails.decodeLevel(getTokenDetailByID(materialId)), "Different level");
+
+    IBHeroDesign design = bHeroToken.design();
+    require(baseLevel < design.getMaxLevel(), "Max level");
+
+    uint256 rarity = BHeroDetails.decodeRarity(baseDetails);
+    uint256 price = design.getUpgradeNativePrice(rarity, baseLevel - 1);
+    require(price > 0, "Price not set");
+    require(msg.value == price, "Wrong price");
+
+    uint256 newDetails = BHeroDetails.increaseLevel(baseDetails);
+    bHeroToken.setTokenDetails(baseId, newDetails);
+    _burnOne(materialId);
+
+    emit UpgradeHero(owner, baseId, materialId, baseLevel + 1, price);
+  }
+
+  /**
+   * Rerolls every ability of a hero. Unsupported at the rarities whose ability count exhausts the
+   * draw pool, where the result would be identical every time - getResetSkillNativePrice returns 0
+   * for those.
+   */
+  function resetSkill(uint256 id) external payable {
+    address owner = msg.sender;
+    require(bHeroToken.ownerOf(id) == owner, "Not owner");
+
+    uint256 details = getTokenDetailByID(id);
+    uint256 rarity = BHeroDetails.decodeRarity(details);
+    uint256 times = BHeroDetails.decodeRandomizeAbilityCounter(details);
+
+    IBHeroDesign design = bHeroToken.design();
+    uint256 price = design.getResetSkillNativePrice(rarity, times);
+    require(price > 0, "Reset skill not supported");
+    require(msg.value == price, "Wrong price");
+
+    (, uint256 newDetails) = design.randomizeAbilities(_seed(id, details), details);
+    newDetails = BHeroDetails.increaseRandomizeAbilityCounter(newDetails);
+    bHeroToken.setTokenDetails(id, newDetails);
+
+    emit ResetSkill(owner, id, times, price);
+  }
+
+  /**
+   * Rerolls skin and color. The new skin is always different from the current one; color is not
+   * guaranteed to change.
+   */
+  function resetSkin(uint256 id) external payable {
+    address owner = msg.sender;
+    require(bHeroToken.ownerOf(id) == owner, "Not owner");
+
+    uint256 details = getTokenDetailByID(id);
+    uint256 rarity = BHeroDetails.decodeRarity(details);
+
+    IBHeroDesign design = bHeroToken.design();
+    uint256 price = design.getResetSkinNativePrice(rarity);
+    require(price > 0, "Price not set");
+    require(msg.value == price, "Wrong price");
+
+    (, uint256 newDetails) = design.randomizeSkin(_seed(id, details), details);
+    bHeroToken.setTokenDetails(id, newDetails);
+
+    // Raw details rather than unpacked skin/color: BHeroDetails.decode is an internal library
+    // function, so calling it here would inline the whole decoder into this contract. Every
+    // consumer already parses details.
+    emit ResetSkin(owner, id, newDetails, price);
+  }
+
+  function withdrawNative(address payable to, uint256 amount) external onlyRole(WITHDRAWER_ROLE) {
+    require(to != address(0), "Zero address");
+    require(amount <= address(this).balance, "Exceeds balance");
+    (bool ok, ) = to.call{value: amount}("");
+    require(ok, "Transfer failed");
   }
 }

@@ -33,6 +33,17 @@ interface IBHeroDesign {
     view
     returns (uint256 nextSeed, uint256 encodedDetails);
 
+  function randomizeSkin(uint256 seed, uint256 details)
+    external
+    view
+    returns (uint256 nextSeed, uint256 encodedDetails);
+
+  function getUpgradeNativePrice(uint256 rarity, uint256 level) external view returns (uint256);
+
+  function getResetSkillNativePrice(uint256 rarity, uint256 times) external view returns (uint256);
+
+  function getResetSkinNativePrice(uint256 rarity) external view returns (uint256);
+
   function createTokens(uint256 tokenId, uint256 count, uint256 details) external view returns (uint256[] memory tokenDetails);
 
   // `salt` domain-separates one caller's batch from another's.

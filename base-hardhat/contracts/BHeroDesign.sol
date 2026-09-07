@@ -62,6 +62,10 @@ contract BHeroDesign is AccessControlUpgradeable, UUPSUpgradeable, IBHeroDesign 
   //all skins
   uint256[] private skinArr;
 
+  // Native (BNB/POL) wei per 1 BCOIN, 18 decimals. Appended after every existing declaration;
+  // nothing above may be reordered, retyped or removed.
+  uint256 private nativeRate;
+
   function initialize() public initializer {
     __AccessControl_init();
     __UUPSUpgradeable_init();
@@ -544,6 +548,86 @@ contract BHeroDesign is AccessControlUpgradeable, UUPSUpgradeable, IBHeroDesign 
       }
     }
     nextSeed = seed;
+  }
+
+  // --- native pricing ---
+  // The legacy tables price a normal BHero; every live hero is a HeroS, whose tier has always been
+  // five times that. Native charges one price for every hero, so the multiplier is unconditional.
+  uint256 private constant HERO_S_PRICE_MULTIPLIER = 5;
+
+  event NativeRateChanged(uint256 rate);
+
+  function setNativeRate(uint256 value) external onlyRole(DESIGNER_ROLE) {
+    nativeRate = value;
+    emit NativeRateChanged(value);
+  }
+
+  function getNativeRate() external view returns (uint256) {
+    return nativeRate;
+  }
+
+  function _toNative(uint256 bcoinCost) internal view returns (uint256) {
+    return (bcoinCost * HERO_S_PRICE_MULTIPLIER * nativeRate) / 1 ether;
+  }
+
+  // level is the 0-based tier index, same as getUpgradeCost: (displayed level - 1).
+  function getUpgradeNativePrice(uint256 rarity, uint256 level) external view override returns (uint256) {
+    return _toNative(upgradeCosts[rarity][level]);
+  }
+
+  // 0 means the feature is closed for this rarity. Drawing the whole old pool leaves the ability set
+  // fixed, so a reroll there can never change anything - that rule belongs here, not in price data.
+  function getResetSkillNativePrice(uint256 rarity, uint256 times) external view override returns (uint256) {
+    if (rarityStats[rarity].ability >= OLD_ABILITY_POOL_SIZE) {
+      return 0;
+    }
+    AbilityDesign storage design = abilityDesigns[rarity];
+    return _toNative(MathUpgradeable.min(design.minCost + design.incrementalCost * times, design.maxCost));
+  }
+
+  // Deliberately the Reset Skill price at times 0 - the two happen to be equal, they are not the
+  // same rule. Re-pricing Reset Skill moves this too; split it out if they ever need to differ.
+  function getResetSkinNativePrice(uint256 rarity) external view override returns (uint256) {
+    return _toNative(abilityDesigns[rarity].minCost);
+  }
+
+  // Rerolls color freely and skin excluding the current one.
+  function randomizeSkin(uint256 seed, uint256 _details)
+    external
+    view
+    override
+    returns (uint256 nextSeed, uint256 encodedDetails)
+  {
+    BHeroDetails.Details memory details = BHeroDetails.decode(_details);
+    (seed, details.color) = Utils.randomRangeInclusive(seed, 1, COLOR_COUNT);
+
+    uint256 count = skinArr.length;
+    require(count > 1, "Not enough skins");
+
+    uint256 excludeIdx = count;
+    for (uint256 i = 0; i < count; ++i) {
+      if (skinArr[i] == details.skin) {
+        excludeIdx = i;
+        break;
+      }
+    }
+
+    uint256 picked;
+    if (excludeIdx == count) {
+      // Current skin is not in the list at all, so there is nothing to exclude.
+      (seed, picked) = Utils.randomRangeInclusive(seed, 0, count - 1);
+    } else {
+      // Draw over a range one shorter, then skip past the excluded index: every other skin stays
+      // equally likely without a retry loop.
+      (seed, picked) = Utils.randomRangeInclusive(seed, 0, count - 2);
+      if (picked >= excludeIdx) {
+        picked += 1;
+      }
+    }
+    details.skin = skinArr[picked];
+
+    nextSeed = seed;
+    encodedDetails = details.encode();
   }
 
   function dummyDeploy() public view returns (uint256) {
