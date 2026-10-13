@@ -471,6 +471,10 @@ contract BHeroDesign is AccessControlUpgradeable, UUPSUpgradeable, IBHeroDesign 
     details.bombRange = stats.bombRange;
 
     (seed, details.color) = Utils.randomRangeInclusive(seed, 1, COLOR_COUNT);
+    uint256 color = (detailsVal >> 205) & 31;
+    if (color != 0) {
+      details.color = color;
+    }
     if (skin == BHeroDetails.ALL_SKIN) {
       //except all event skill
       uint256 indexArr;

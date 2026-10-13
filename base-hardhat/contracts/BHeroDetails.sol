@@ -145,6 +145,10 @@ library BHeroDetails {
     return (details >> 40) & 31;
   }
 
+  function decodeSkin(uint256 details) internal pure returns (uint256) {
+    return (((details >> 250) & 31) << 5) | ((details >> 55) & 31);
+  }
+
   function decodeLevel(uint256 details) internal pure returns (uint256) {
     return (details >> 45) & 31;
   }

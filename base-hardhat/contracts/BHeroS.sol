@@ -41,6 +41,9 @@ contract BHeroS is Initializable, AccessControlUpgradeable, UUPSUpgradeable {
   bytes32 public constant DESIGNER_ROLE = keccak256("DESIGNER_ROLE");
   bytes32 public constant CLAIMER_ROLE = keccak256("CLAIMER_ROLE");
 
+  // Color of a hero fused from 4 heroes of the same skin.
+  uint256 private constant SPECIAL_COLOR = 6;
+
   BHeroToken public bHeroToken;
 
   uint256 maxBurn;
@@ -224,7 +227,7 @@ contract BHeroS is Initializable, AccessControlUpgradeable, UUPSUpgradeable {
 
     //requestCreateToken
     uint256 isHeroS = 1;
-    requestCreateToken(msg.sender, 1, BHeroDetails.ALL_RARITY, 0, isHeroS, dropRateOption);
+    requestCreateToken(msg.sender, 1, BHeroDetails.ALL_RARITY, 0, isHeroS, dropRateOption, 0);
   }
 
   function getPercentHeroS(uint256[] memory heroTypes) public pure returns (uint256[] memory) {
@@ -242,7 +245,8 @@ contract BHeroS is Initializable, AccessControlUpgradeable, UUPSUpgradeable {
     uint256 rarity,
     uint256 category,
     uint256 isHeroS,
-    uint256[] memory dropRateOption
+    uint256[] memory dropRateOption,
+    uint256 extraDetails
   ) internal {
     uint256 targetBlock = block.number + 5;
     uint256 value;
@@ -250,7 +254,7 @@ contract BHeroS is Initializable, AccessControlUpgradeable, UUPSUpgradeable {
     for (uint256 i = 0; i < dropRateOption.length; ++i) {
       value |= dropRateOption[i] << (45 + i * 15);
     }
-    uint256 details = targetBlock | (category << 30) | (isHeroS << 35) | value;
+    uint256 details = targetBlock | (category << 30) | (isHeroS << 35) | value | extraDetails;
 
     bHeroToken.createTokenRequest(to, count, rarity, targetBlock, details);
 
@@ -292,14 +296,15 @@ contract BHeroS is Initializable, AccessControlUpgradeable, UUPSUpgradeable {
       BHeroDetails.ALL_RARITY,
       requestCategory,
       isHeroS,
-      bHeroToken.design().getDropRateHeroS()
+      bHeroToken.design().getDropRateHeroS(),
+      0
     );
   }
 
   function claimHeroS(address user, uint256 heroCount, uint256[] memory ratioHeroS) external onlyRole(CLAIMER_ROLE) {
     uint256 requestCategory = 0;
     uint256 isHeroS = 1;
-    requestCreateToken(user, heroCount, BHeroDetails.ALL_RARITY, requestCategory, isHeroS, ratioHeroS);
+    requestCreateToken(user, heroCount, BHeroDetails.ALL_RARITY, requestCategory, isHeroS, ratioHeroS, 0);
   }
 
   /**
@@ -488,10 +493,9 @@ contract BHeroS is Initializable, AccessControlUpgradeable, UUPSUpgradeable {
     uint256 rarityTarget;
     uint256[] memory dropRateOption = new uint256[](10);
     (rarityMain, rarityTarget, dropRateOption) = _calculateFusion(mainMaterials, buffMaterials);
-    address to = msg.sender;
 
     //category = 3: use fusion.
-    requestCreateToken(to, 1, BHeroDetails.ALL_RARITY, 3, 1, dropRateOption);
+    _requestFusion(dropRateOption, mainMaterials);
 
     //burn list hero
     bHeroToken.burn(mainMaterials);
@@ -499,7 +503,7 @@ contract BHeroS is Initializable, AccessControlUpgradeable, UUPSUpgradeable {
       bHeroToken.burn(buffMaterials);
     }
 
-    emit Fusion(to, mainMaterials, buffMaterials, rarityMain, rarityTarget);
+    emit Fusion(msg.sender, mainMaterials, buffMaterials, rarityMain, rarityTarget);
   }
 
   /**
@@ -530,6 +534,25 @@ contract BHeroS is Initializable, AccessControlUpgradeable, UUPSUpgradeable {
       dropRateOption[rarityTarget] = percent;
     }
     return (rarityMain, rarityTarget, dropRateOption);
+  }
+
+  // Separate function to stay under the stack limit in fusion.
+  function _requestFusion(uint256[] memory dropRateOption, uint256[] calldata mainMaterials) internal {
+    requestCreateToken(msg.sender, 1, BHeroDetails.ALL_RARITY, 3, 1, dropRateOption, _fusionSkinDetails(mainMaterials));
+  }
+
+  // 4 main heroes of the same skin: forced skin (bits 195-204) and special color (bits 205-209).
+  function _fusionSkinDetails(uint256[] calldata mainMaterials) internal view returns (uint256) {
+    if (mainMaterials.length != 4) {
+      return 0;
+    }
+    uint256 skin = BHeroDetails.decodeSkin(getTokenDetailByID(mainMaterials[0]));
+    for (uint256 i = 1; i < 4; i++) {
+      if (BHeroDetails.decodeSkin(getTokenDetailByID(mainMaterials[i])) != skin) {
+        return 0;
+      }
+    }
+    return (skin << 195) | (SPECIAL_COLOR << 205);
   }
 
   function _isSameRarity(uint256[] calldata listIdHero) internal view returns (bool) {
